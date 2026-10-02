@@ -1,4 +1,4 @@
-"""CLI: python -m app.cli [init-db | seed [--full] | models | worker | run-jobs]"""
+"""CLI: python -m app.cli [init-db | seed [--full] | llm-check | models | worker | run-jobs]"""
 import sys
 import time
 
@@ -23,10 +23,27 @@ def seed_demo_event(svc) -> int:
     return svc.repo.create_event(DEMO_EVENT, svc.settings.campaign_daily_limit, "seed")
 
 
+def _llm_check(llm, settings):
+    """Smoke-test the configured LLM provider (for the CLI route this also proves you are signed in)."""
+    from .llm.base import LLMError
+    print(f"LLM_PROVIDER={settings.llm_provider} provider={llm.name} model={llm.model or 'default'}")
+    try:
+        if hasattr(llm, "version"):
+            print("CLI version:", llm.version())
+        out = llm.generate("Reply with exactly the single word: OK", temperature=0)
+        print("Reply:", out.strip()[:80])
+        print("OK: the provider answered.")
+    except LLMError as e:
+        sys.exit(f"FAILED: {e}")
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "help"
     settings = Settings.from_env()
-    settings.validate_for_runtime()
+    try:
+        settings.validate_for_runtime()
+    except RuntimeError as e:
+        sys.exit(f"Configuration error: {e}")
     from .logging_setup import setup_logging
     setup_logging(settings.log_level)
     from .services import build_services
@@ -40,6 +57,8 @@ def main(argv):
             svc.queue.run_all()
             print("Ran discovery + research for demo event", eid)
         print("Demo event id:", eid)
+    elif cmd == "llm-check":
+        _llm_check(svc.llm, settings)
     elif cmd == "models":
         from .llm.gemini import GeminiProvider, rank_models
         if not settings.gemini_api_key:

@@ -1,12 +1,14 @@
-"""Gemini provider over the public REST API (generateContent). Model is configurable; if unset the
-strongest *generally available* text model is discovered from models.list."""
+"""Gemini provider over the public REST API (generateContent), authenticated with a GEMINI_API_KEY.
+OPTIONAL fallback: the primary Google-account route is `llm/cli.py`. Model is configurable; if unset the
+strongest *generally available* text model is discovered from models.list. API usage is billed/quota'd separately
+from a Google AI Pro subscription."""
 import re
 import time
 
 import requests
 
 from ..logging_setup import log_event, redact
-from .base import LLMError, LLMProvider, parse_json_loose, validate_schema
+from .base import LLMError, LLMProvider, json_from_text
 
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 _EXCLUDE = re.compile(r"(image|tts|audio|live|embed|aqa|veo|imagen|lyria|robotics|computer-use|customtools|thinking-exp|vision|native|gemma|learnlm|deep-research|antigravity)", re.I)
@@ -119,21 +121,10 @@ class GeminiProvider(LLMProvider):
         return self._call(self._body(prompt, system, temperature, max_tokens, False))
 
     def generate_json(self, prompt, *, system=None, schema=None, task=None, context=None, temperature=0.2):
-        import json as _json
-        full = prompt
-        if schema:
-            full += "\n\nReturn ONLY JSON matching this schema (no prose, no markdown):\n" + _json.dumps(schema)
-        last_err = ""
-        for attempt in range(2):
-            text = self._call(self._body(full, system, temperature, None, True))
-            try:
-                data = parse_json_loose(text)
-                errs = validate_schema(data, schema) if schema else []
-                if not errs:
-                    return data
-                last_err = "; ".join(errs[:3])
-            except LLMError as e:
-                last_err = str(e)
-            full += f"\n\nYour previous reply was invalid ({last_err}). Reply again with valid JSON only."
-        log_event("llm_failure", provider="gemini", model=self.model, error=f"invalid JSON: {last_err}")
-        raise LLMError(f"Gemini returned invalid JSON: {last_err}")
+        try:
+            return json_from_text(lambda full: self._call(self._body(full, system, temperature, None, True)), prompt, schema)
+        except LLMError as e:
+            if not str(e).startswith("invalid JSON"):
+                raise
+            log_event("llm_failure", provider="gemini", model=self.model, error=str(e))
+            raise LLMError(f"Gemini returned {e}") from e

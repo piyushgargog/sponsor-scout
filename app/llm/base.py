@@ -8,6 +8,14 @@ class LLMError(Exception):
     pass
 
 
+class LLMAuthError(LLMError):
+    """The provider is not signed in / not configured. A human must fix this; retrying will not help."""
+
+
+class LLMQuotaError(LLMError):
+    """The account's usage quota or rate limit was hit. Never retried or bypassed; wait for the quota to reset."""
+
+
 def parse_json_loose(text: str):
     """Parse JSON possibly wrapped in markdown fences or surrounded by prose."""
     t = (text or "").strip()
@@ -51,6 +59,27 @@ def validate_schema(data, schema: dict, path="$") -> list[str]:
         for i, it in enumerate(data[:200]):
             errs += validate_schema(it, schema["items"], f"{path}[{i}]")
     return errs
+
+
+def json_from_text(call, prompt: str, schema: dict | None, attempts: int = 2):
+    """Shared JSON mode for text-only providers: ask for JSON, parse leniently, validate locally, and
+    give the model one repair attempt. `call(prompt) -> str`. Raises LLMError('invalid JSON: ...')."""
+    full = prompt
+    if schema:
+        full += "\n\nReturn ONLY JSON matching this schema (no prose, no markdown):\n" + json.dumps(schema)
+    last_err = ""
+    for _ in range(attempts):
+        text = call(full)
+        try:
+            data = parse_json_loose(text)
+            errs = validate_schema(data, schema) if schema else []
+            if not errs:
+                return data
+            last_err = "; ".join(errs[:3])
+        except LLMError as e:
+            last_err = str(e)
+        full += f"\n\nYour previous reply was invalid ({last_err}). Reply again with valid JSON only."
+    raise LLMError(f"invalid JSON: {last_err}")
 
 
 class LLMProvider(ABC):

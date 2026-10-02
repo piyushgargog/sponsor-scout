@@ -1,5 +1,6 @@
 """Configuration layer. Everything important is an environment variable (see .env.example)."""
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +28,20 @@ def _int(name, default):
         return default
 
 
+def _bool(name, default=True):
+    v = os.environ.get(name, "")
+    return default if v == "" else v.strip().lower() not in ("0", "false", "no", "off")
+
+
+LLM_PROVIDER_ALIASES = {"gemini_cli": "cli", "gemini-cli": "cli", "antigravity": "cli", "agy": "cli", "google": "cli"}
+
+
+def _llm_provider_name() -> str:
+    """LLM_PROVIDER, else gemini (API key) if a key is set, else the offline mock."""
+    name = (os.environ.get("LLM_PROVIDER", "") or ("gemini" if os.environ.get("GEMINI_API_KEY") else "mock")).lower()
+    return LLM_PROVIDER_ALIASES.get(name, name)
+
+
 def _float(name, default):
     try:
         return float(os.environ.get(name, "") or default)
@@ -41,8 +56,16 @@ class Settings:
     admin_password: str = ""
     database_url: str = "sqlite:///data/app.db"
 
-    llm_provider: str = "mock"
-    gemini_api_key: str = ""
+    llm_provider: str = "mock"          # mock | cli (Google account via agy/gemini CLI) | gemini (API key) | openai (stub)
+    llm_cli_bin: str = "agy"
+    llm_cli_flavor: str = ""            # agy | gemini; empty = detect from the binary name
+    llm_cli_model: str = ""             # empty = the account/CLI default model
+    llm_cli_timeout_seconds: int = 180
+    llm_cli_concurrency: int = 1
+    llm_cli_pass_env: str = ""          # extra env var NAMES the CLI child may inherit (comma separated)
+    llm_fit_analysis: bool = True       # advisory LLM analysis next to the rule-based score
+    llm_email_review: bool = True       # advisory LLM check for unsupported claims in drafts
+    gemini_api_key: str = ""            # OPTIONAL: only for LLM_PROVIDER=gemini
     gemini_model: str = ""
 
     search_provider: str = "mock"
@@ -97,7 +120,15 @@ class Settings:
             secret_key=e("SECRET_KEY", ""),
             admin_password=e("ADMIN_PASSWORD", ""),
             database_url=e("DATABASE_URL", "") or "sqlite:///data/app.db",
-            llm_provider=(e("LLM_PROVIDER", "") or ("gemini" if e("GEMINI_API_KEY") else "mock")).lower(),
+            llm_provider=_llm_provider_name(),
+            llm_cli_bin=e("LLM_CLI_BIN", "") or "agy",
+            llm_cli_flavor=e("LLM_CLI_FLAVOR", "").lower(),
+            llm_cli_model=e("LLM_CLI_MODEL", ""),
+            llm_cli_timeout_seconds=_int("LLM_CLI_TIMEOUT_SECONDS", 180),
+            llm_cli_concurrency=max(1, _int("LLM_CLI_CONCURRENCY", 1)),
+            llm_cli_pass_env=e("LLM_CLI_PASS_ENV", ""),
+            llm_fit_analysis=_bool("LLM_FIT_ANALYSIS"),
+            llm_email_review=_bool("LLM_EMAIL_REVIEW"),
             gemini_api_key=e("GEMINI_API_KEY", ""),
             gemini_model=e("GEMINI_MODEL", ""),
             search_provider=(e("SEARCH_PROVIDER", "") or "mock").lower(),
@@ -141,8 +172,18 @@ class Settings:
             if not self.admin_password:
                 self.admin_password = "demo"
                 warnings.append('ADMIN_PASSWORD not set; development login password is "demo".')
+        if self.llm_provider not in ("mock", "cli", "gemini", "openai"):
+            raise RuntimeError(f"Unknown LLM_PROVIDER '{self.llm_provider}' (use mock, cli, gemini or openai).")
         if self.llm_provider == "gemini" and not self.gemini_api_key:
-            raise RuntimeError("LLM_PROVIDER=gemini requires GEMINI_API_KEY.")
+            raise RuntimeError("LLM_PROVIDER=gemini (API-key mode) requires GEMINI_API_KEY. To use your Google AI Pro "
+                               "account instead, set LLM_PROVIDER=cli and sign in to the CLI.")
+        if self.llm_provider == "cli":
+            from .llm.cli import FLAVORS
+            if self.llm_cli_flavor and self.llm_cli_flavor not in FLAVORS:
+                raise RuntimeError(f"LLM_CLI_FLAVOR must be one of {FLAVORS}.")
+            if not shutil.which(self.llm_cli_bin):
+                raise RuntimeError(f"LLM_PROVIDER=cli but '{self.llm_cli_bin}' is not on PATH. Install the CLI and sign in "
+                                   "with Google, or set LLM_CLI_BIN to its full path.")
         if self.mail_provider == "gmail" and not (self.google_client_id and self.google_client_secret):
             raise RuntimeError("MAIL_PROVIDER=gmail requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.")
         if self.mail_provider == "mock":

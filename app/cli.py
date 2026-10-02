@@ -1,4 +1,4 @@
-"""CLI: python -m app.cli [init-db | seed [--full] | llm-check | models | worker | run-jobs]"""
+"""CLI: python -m app.cli [init-db | seed [--full] | create-event FILE.json [--run] | llm-check | models | worker | run-jobs]"""
 import sys
 import time
 
@@ -37,6 +37,22 @@ def _llm_check(llm, settings):
         sys.exit(f"FAILED: {e}")
 
 
+def load_event_file(path: str) -> dict:
+    """Read an event preset (same keys as the web form) and validate it. Fields still starting with REPLACE are rejected."""
+    import json
+    from .validators import ValidationError, parse_event
+    with open(path, encoding="utf-8") as f:
+        raw = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+    raw = {k: str(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else v for k, v in raw.items()}  # form parser expects text
+    todo = [k for k, v in raw.items() if "REPLACE" in json.dumps(v)]
+    if todo:
+        sys.exit("Fill in these fields in " + path + " first: " + ", ".join(todo))
+    try:
+        return parse_event(raw)
+    except ValidationError as e:
+        sys.exit(f"Invalid event file: {e}")
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "help"
     settings = Settings.from_env()
@@ -57,6 +73,19 @@ def main(argv):
             svc.queue.run_all()
             print("Ran discovery + research for demo event", eid)
         print("Demo event id:", eid)
+    elif cmd == "create-event":
+        if len(argv) < 3:
+            sys.exit("usage: python -m app.cli create-event FILE.json [--run]")
+        data = load_event_file(argv[2])
+        eid = svc.repo.create_event(data, settings.campaign_daily_limit, "cli")
+        if "--run" in argv:
+            print("Finding sponsors (this calls your LLM + search provider; it can take several minutes)...")
+            print(svc.pipeline.discover(eid, "cli"))
+            print("Processed", svc.queue.run_all(), "jobs. Open the app and go to Leads.")
+        else:
+            svc.queue.enqueue("discover", {"event_id": eid, "actor": "cli"}, dedupe_key=f"discover:{eid}", event_id=eid, label="Find sponsors")
+            print("Event created; discovery queued. Start `python run.py` and the worker will process it.")
+        print("Event id:", eid)
     elif cmd == "llm-check":
         _llm_check(svc.llm, settings)
     elif cmd == "models":

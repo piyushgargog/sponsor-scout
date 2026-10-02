@@ -7,9 +7,12 @@ from .prompts import EMAIL_SCHEMA, email_prompt, SYSTEM_RULES
 
 SIG_MARKER = "\n\n-- \n"
 DEFAULT_BENEFITS = "logo placement across the event, a demo or workshop slot, and direct access to attendees"
-ASK_BY_CATEGORY = [("credits", ["API credits", "cloud credits"]), ("hackathon", ["workshop partners", "cash sponsorship"]),
-                   ("sponsorship", ["cash sponsorship", "workshop partners"]), ("student_program", ["swag", "speakers"]),
-                   ("developer_program", ["speakers", "workshop partners"])]
+ASK_BY_CATEGORY = [("credits", ["API credits", "cloud credits", "credits", "licence", "license", "subscription"]),
+                   ("hackathon", ["prizes", "workshop partners", "cash sponsorship", "mentorship"]),
+                   ("sponsorship", ["cash sponsorship", "prizes", "workshop partners"]),
+                   ("student_program", ["swag", "free tool access", "subscription", "speakers"]),
+                   ("developer_program", ["free tool access", "speakers", "workshop partners", "mentorship"])]
+CASH_TERMS = ("cash", "money", "monetary", "fund", "stipend", "fee")
 FACT_ORDER = ["sponsorship", "hackathon", "student_program", "credits", "university_partnership", "ambassador", "developer_program", "india", "launch"]
 
 
@@ -43,6 +46,12 @@ def suggest_ask(event: dict, facts: list[dict]) -> str:
                     if p.lower() in k:
                         return orig
     return reqs[0] if reqs else "sponsorship"
+
+
+def is_in_kind(event: dict) -> bool:
+    """Barter event: none of the requested sponsorship types is money, so emails must not ask for payment."""
+    reqs = " ".join(event.get("requirements") or []).lower()
+    return bool(reqs) and not any(t in reqs for t in CASH_TERMS)
 
 
 def event_context(event: dict) -> dict:

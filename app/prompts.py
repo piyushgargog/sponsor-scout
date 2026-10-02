@@ -64,7 +64,12 @@ def synthesis_prompt(company: dict, pages: list[dict]) -> str:
             "\n\nPAGES:\n" + blocks)
 
 
+IN_KIND_RULE = ("- This is an IN-KIND (barter) request: ask for products, credits, licences, prizes, swag, tool access or expert time in "
+                "exchange for visibility. Do NOT ask for money, funding or payment, and do not mention budgets.\n")
+
+
 def email_prompt(ev: dict, company: dict, contact: dict, facts: list[dict], sender: dict, ask_options: list[str]) -> str:
+    from .emailgen import is_in_kind
     fact_lines = "\n".join(f"{f['id']}: {f['text']}  (source: {f['source_url']})" for f in facts)
     return (
         "Write a short, specific cold email (100-180 words, excluding greeting/sign-off) asking a company to sponsor a college event.\n"
@@ -72,6 +77,7 @@ def email_prompt(ev: dict, company: dict, contact: dict, facts: list[dict], send
         "- Every statement about the company MUST come from the VERIFIED FACTS below; cite them via fact ids.\n"
         "- Do not invent numbers, products, names, partnerships or URLs. Do not use 'Dear Sir/Madam', 'hope this finds you well', hype, urgency or exclamation marks.\n"
         "- Greeting: use the contact's first name only if a name is given, otherwise 'Hi <Company> team,'.\n"
+        + (IN_KIND_RULE if is_in_kind(ev) else "") +
         "- No links. No signature (added later). Plain, human, direct tone. One clear CTA and one concrete sponsorship ask chosen from the ask options.\n"
         "- `personalization` lists each sentence in the body that states something specific about the company, with the fact ids that support it and a one-line `why`.\n\n"
         f"EVENT: {json.dumps(event_summary(ev), ensure_ascii=False)}\n"

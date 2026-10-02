@@ -1,7 +1,7 @@
 # Convenience wrappers. Everything is plain Python; there is no build step.
 PY ?= python3
 
-.PHONY: install dev test check seed seed-full worker llm-check models clean
+.PHONY: install dev test check seed seed-full worker llm-check event models clean
 
 install:            ## install dependencies
 	$(PY) -m pip install -r requirements.txt
@@ -23,6 +23,9 @@ seed-full:          ## demo event + discovery + research, run synchronously
 
 worker:             ## job worker only (use with WORKER_ENABLED=0 on the web process)
 	$(PY) -m app.cli worker
+
+event:              ## create an event from a JSON preset and find sponsors: make event FILE=events/your-event.json
+	$(PY) -m app.cli create-event $(FILE) --run
 
 llm-check:          ## smoke-test the configured LLM provider (with LLM_PROVIDER=cli this proves the CLI is signed in)
 	$(PY) -m app.cli llm-check

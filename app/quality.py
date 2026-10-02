@@ -1,7 +1,7 @@
 """Pre-send quality gate. 'block' checks make a draft unsendable; 'warn' checks require explicit human acknowledgement."""
 import re
 
-from .emailgen import core_body
+from .emailgen import CASH_TERMS, core_body, is_in_kind
 from .llm.base import LLMError
 from .logging_setup import log_event
 from .normalize import is_placeholder_email, is_valid_email
@@ -149,6 +149,12 @@ def evaluate(draft: dict, event: dict, company: dict, contact: dict | None, fact
     if opener:
         spam.append("generic opener: " + opener[0])
     add("spam_risk", "warn" if spam else "pass", "; ".join(spam) if spam else "No spam-risk signals.")
+
+    # --- barter events must not ask for money ---
+    if is_in_kind(event):
+        money = [t for t in CASH_TERMS + ("₹", "payment", "budget", "inr") if re.search(r"(?<!\w)" + re.escape(t), body.lower())]
+        if money:
+            add("in_kind_ask", "warn", "This is a barter (in-kind) event but the email mentions money: " + ", ".join(money[:4]) + ".")
 
     # --- relevance ---
     if fit_score is None:

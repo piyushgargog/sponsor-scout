@@ -10,6 +10,7 @@ from .mailer.mock import MockMailer
 from .pipeline import Pipeline
 from .repo import Repo
 from .research.fetcher import FixtureFetcher, HttpFetcher
+from .search.list import ListSearchProvider
 from .search.mock import MockSearchProvider
 from .search.web import WebSearchProvider
 from .sending import Sender
@@ -37,6 +38,8 @@ def build_services(settings, *, llm=None, search=None, fetcher=None, mailer=None
     if search is None:
         if settings.search_provider == "mock":
             search, fetcher = MockSearchProvider(), fetcher or FixtureFetcher()
+        elif settings.search_provider == "list":
+            search = ListSearchProvider(settings.search_list_file)
         else:
             search = WebSearchProvider(settings.search_provider, brave_key=settings.brave_api_key,
                                        google_key=settings.google_cse_key, google_cx=settings.google_cse_cx)

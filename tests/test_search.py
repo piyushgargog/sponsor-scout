@@ -1,9 +1,12 @@
+import os
+import tempfile
 import unittest
 from unittest import mock
 
 import requests
 
 from app.search.base import SearchError
+from app.search.list import ListSearchProvider
 from app.search.mock import MockSearchProvider
 from app.search.web import WebSearchProvider
 
@@ -66,3 +69,25 @@ class MockSearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ListSearchTests(unittest.TestCase):
+    def write(self, text):
+        f = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8")
+        f.write(text)
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_returns_every_row_with_a_url(self):
+        p = self.write("name,url,note\nA,https://a.example/,credits\nNo URL,,x\nB, https://b.example/ ,\n")
+        out = ListSearchProvider(p).search("anything", limit=1)
+        self.assertEqual([(r.title, r.url, r.snippet) for r in out], [("A", "https://a.example/", "credits"), ("B", "https://b.example/", "")])
+
+    def test_missing_or_empty_file_is_a_clear_error(self):
+        with self.assertRaises(SearchError):
+            ListSearchProvider("")
+        with self.assertRaises(SearchError):
+            ListSearchProvider(os.path.join(tempfile.gettempdir(), "does-not-exist.csv"))
+        with self.assertRaises(SearchError):
+            ListSearchProvider(self.write("name,url,note\n"))

@@ -71,6 +71,7 @@ class Settings:
     search_provider: str = "mock"
     brave_api_key: str = ""
     google_cse_key: str = ""
+    search_list_file: str = ""
     google_cse_cx: str = ""
 
     mail_provider: str = "mock"
@@ -134,6 +135,7 @@ class Settings:
             search_provider=(e("SEARCH_PROVIDER", "") or "mock").lower(),
             brave_api_key=e("BRAVE_API_KEY", ""),
             google_cse_key=e("GOOGLE_CSE_KEY", ""),
+            search_list_file=e("SEARCH_LIST_FILE", ""),
             google_cse_cx=e("GOOGLE_CSE_CX", ""),
             mail_provider=(e("MAIL_PROVIDER", "") or ("gmail" if e("GOOGLE_CLIENT_ID") else "mock")).lower(),
             google_client_id=e("GOOGLE_CLIENT_ID", ""),
@@ -144,6 +146,7 @@ class Settings:
             sender_org=e("SENDER_ORG", "Your College Tech Club"),
             research_version=e("RESEARCH_VERSION", "v1"),
             research_ttl_days=_int("RESEARCH_TTL_DAYS", 30),
+            max_discovery_candidates=_int("MAX_DISCOVERY_CANDIDATES", 40),
             max_pages_per_company=_int("MAX_PAGES_PER_COMPANY", 8),
             fetch_delay_seconds=_float("FETCH_DELAY_SECONDS", 1.0),
             high_fit_threshold=_int("HIGH_FIT_THRESHOLD", 70),

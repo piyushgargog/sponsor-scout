@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from app.fixtures.mock_data import COMPANIES
-from app.research.contacts import discover_contacts
+from app.research.contacts import contact_is_usable, discover_contacts
 from app.research.extract import extract_facts, extract_people, verify_quote
 import time
 
@@ -65,10 +65,29 @@ class ContactTests(unittest.TestCase):
         out = discover_contacts([pg], "acme.example", [])
         self.assertEqual([c["email"] for c in out], ["sponsorship@acme.example", "marketing@acme.example", "founder@acme.example", "info@acme.example"])
 
-    def test_external_domain_gets_low_confidence(self):
-        pg = parse_html("https://acme.example/contact", "<p>Email <a href='mailto:team@gmail.com'>us</a></p>")
-        out = discover_contacts([pg], "acme.example", [])
-        self.assertLessEqual(out[0]["confidence"], 0.5)
+    def test_other_brands_and_sample_addresses_are_dropped(self):
+        html = ("<p>team@gmail.com, mitch@otheragency.example, hello@company.com, bot@example.com, happy@acme-labs.io</p>"
+                "<p>community@acme.dev</p>")
+        out = discover_contacts([parse_html("https://acme.example/contact", html)], "acme.example", [])
+        self.assertEqual([c["email"] for c in out], ["community@acme.dev"])   # same brand on another TLD is kept
+        self.assertLessEqual(out[0]["confidence"], 0.7)
+
+    def test_non_sponsorship_inboxes_are_dropped(self):
+        html = ("<p>fraud@acme.example billing-support@acme.example cloudsupport@acme.example help@acme.example "
+                "awsreinvent-support@acme.example %20partners@acme.example</p>")
+        out = discover_contacts([parse_html("https://acme.example/contact", html)], "acme.example", [])
+        self.assertEqual([c["email"] for c in out], ["partners@acme.example"])
+
+    def test_link_text_is_not_a_person_name(self):
+        html = ("<p><a href='mailto:help-events@acme.example'>Report Abuse</a> <a href='mailto:partners@acme.example'>Contact Us</a> "
+                "<a href='mailto:jane@acme.example'>Jane Doe</a></p>")
+        out = {c["email"]: c["name"] for c in discover_contacts([parse_html("https://acme.example/contact", html)], "acme.example", [])}
+        self.assertEqual(out, {"help-events@acme.example": None, "partners@acme.example": None, "jane@acme.example": "Jane Doe"})
+
+    def test_contact_is_usable(self):
+        self.assertTrue(contact_is_usable("sponsorship@acme.example", "acme.example"))
+        self.assertFalse(contact_is_usable("sponsorship@other.example", "acme.example"))
+        self.assertFalse(contact_is_usable("billing-support@acme.example", "acme.example"))
 
     def test_person_attached_when_nearby(self):
         pages = pages_for("tensorloom.example")

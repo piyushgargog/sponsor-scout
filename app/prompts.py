@@ -36,8 +36,8 @@ EMAIL_REVIEW_SCHEMA = {"type": "object", "required": ["unsupported_claims"], "pr
 
 
 def event_summary(ev: dict) -> dict:
-    return {k: ev[k] for k in ("name", "college", "city", "country", "event_date", "expected_attendance", "event_type",
-                               "audience", "requirements", "categories", "keywords") if k in ev}
+    return {k: ev[k] for k in ("name", "college", "city", "country", "event_date", "event_end_date", "date_human", "expected_attendance",
+                               "event_type", "description", "audience", "requirements", "categories", "keywords") if ev.get(k)}
 
 
 def discovery_queries_prompt(ev: dict, n: int = 10) -> str:

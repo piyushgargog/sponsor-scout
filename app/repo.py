@@ -22,9 +22,9 @@ class Repo:
     def create_event(self, d: dict, daily_limit: int, actor="system") -> int:
         with self.db.tx():
             eid = self.db.run(
-                "INSERT INTO events(name,college,city,country,event_date,expected_attendance,event_type,description,benefits,"
-                "audience_json,requirements_json,categories_json,keywords_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (d["name"], d["college"], d["city"], d.get("country", "India"), d["event_date"], d["expected_attendance"],
+                "INSERT INTO events(name,college,city,country,event_date,event_end_date,expected_attendance,event_type,description,benefits,"
+                "audience_json,requirements_json,categories_json,keywords_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (d["name"], d["college"], d["city"], d.get("country", "India"), d["event_date"], d.get("event_end_date"), d["expected_attendance"],
                  d["event_type"], d.get("description"), d.get("benefits"), jdump(d["audience"]), jdump(d["requirements"]),
                  jdump(d.get("categories", [])), jdump(d.get("keywords", [])), now_iso()))
             self.db.run("INSERT INTO campaigns(event_id,name,daily_limit,created_at) VALUES(?,?,?,?)",

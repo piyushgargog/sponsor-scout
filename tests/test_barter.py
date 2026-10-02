@@ -44,6 +44,18 @@ class InKindTests(unittest.TestCase):
     def test_money_in_a_barter_email_is_flagged(self):
         self.assertTrue(self.check_for("Hi Acme team,\n\nCould you provide cash support or a small fund for prizes?", BARTER))
         self.assertTrue(self.check_for("Hi Acme team,\n\nOur budget is tight, so ₹ help would be great.", BARTER))
+        self.assertTrue(self.check_for("Hi Acme team,\n\nWould you consider funding the prizes or covering the fees?", BARTER))
+
+    def test_words_that_only_contain_a_money_term_are_not_flagged(self):
+        self.assertFalse(self.check_for("Hi Acme team,\n\nAcme feels like a natural fit, and this is fundamental to us.", BARTER))
+
+    def test_money_word_taken_from_a_cited_fact_is_not_an_ask(self):
+        fact = {"id": "F1", "text": "Acme partners with Paytm on real-time payments.", "source_url": "https://acme.example"}
+        sentence = "I read about your partnership with Paytm on real-time payments."
+        d = {"subject": "Partnership", "body": "Hi Acme team,\n\n" + sentence,
+             "personalization": [{"sentence": sentence, "fact_ids": ["F1"], "why": ""}]}
+        q = quality.evaluate(d, event_context(BARTER), {"name": "Acme"}, {"email": "a@acme.example", "confidence": 0.9}, [fact], 60)
+        self.assertFalse([c for c in q["checks"] if c["name"] == "in_kind_ask"])
 
     def test_in_kind_email_not_flagged_and_cash_events_unaffected(self):
         self.assertFalse(self.check_for("Hi Acme team,\n\nCould you give API credits or licences as prizes?", BARTER))
@@ -75,6 +87,26 @@ class PresetTests(AppCase):
         self.assertEqual(data["expected_attendance"], 2000)
         self.assertTrue(is_in_kind(data))
         self.assertNotIn("cash sponsorship", data["requirements"])
+
+    def test_optional_end_date_for_multi_day_events(self):
+        base = dict(event_name="X", college="Y", event_date="2026-10-30", expected_attendance="100", description="d")
+        data = load_event_file(self.write(**base, event_end_date="2026-10-31"))
+        self.assertEqual(data["event_end_date"], "2026-10-31")
+        self.assertEqual(event_context(data)["date_human"], "30-31 October 2026")
+        self.assertIn("30-31 October 2026", prompts.email_prompt(event_context(data), {"name": "Acme"}, {}, [], {"name": "S"}, ["swag"]))
+        one_day = load_event_file(self.write(**base, event_end_date=""))
+        self.assertIsNone(one_day["event_end_date"])
+        self.assertEqual(event_context(one_day)["date_human"], "30 October 2026")
+        with self.assertRaises(SystemExit) as cm:
+            load_event_file(self.write(**base, event_end_date="2026-10-29"))
+        self.assertIn("event_end_date", str(cm.exception))
+
+    def test_end_date_is_stored(self):
+        data = load_event_file(self.write(event_name="X", college="Y", event_date="2026-10-30", event_end_date="2026-11-02",
+                                          expected_attendance="100", description="d"))
+        ev = self.repo.get_event(self.repo.create_event(data, 20, "test"))
+        self.assertEqual(ev["event_end_date"], "2026-11-02")
+        self.assertEqual(event_context(ev)["date_human"], "30 October - 2 November 2026")
 
     def test_numeric_json_values_are_accepted(self):
         path = self.write(event_name="X", college="Y", event_date="2026-12-05", expected_attendance=250, description="d")

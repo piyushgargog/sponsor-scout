@@ -52,6 +52,15 @@ def parse_event(form) -> dict:
     except ValueError:
         d = None
         errors["event_date"] = "use YYYY-MM-DD"
+    end_raw = clean_text(g("event_end_date"), 10)
+    end = None
+    if end_raw:
+        try:
+            end = date.fromisoformat(end_raw)
+            if d and end < d:
+                errors["event_end_date"] = "must be on or after the event date"
+        except ValueError:
+            errors["event_end_date"] = "use YYYY-MM-DD, or leave empty for a one-day event"
     try:
         att = int(clean_text(g("expected_attendance"), 7))
         if not 10 <= att <= 100000:
@@ -69,6 +78,7 @@ def parse_event(form) -> dict:
         raise ValidationError(errors)
     return {
         "name": name, "college": college, "city": city, "country": country, "event_date": d.isoformat(),
+        "event_end_date": end.isoformat() if end and end != d else None,
         "expected_attendance": att, "event_type": event_type, "description": description, "benefits": benefits,
         "audience": audience, "requirements": reqs,
         "categories": split_list(g("categories")), "keywords": split_list(g("keywords")),

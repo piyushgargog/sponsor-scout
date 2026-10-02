@@ -11,7 +11,8 @@ SHARED_HOSTS = {"github.io", "vercel.app", "netlify.app", "herokuapp.com", "page
                 "firebaseapp.com", "notion.site", "substack.com", "wixsite.com", "carrd.co", "framer.app"}
 _EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9\-]+(\.[a-z0-9\-]+)+$")
 PLACEHOLDER_TLDS = {"example", "invalid", "test", "localhost", "local"}
-PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net", "test.com", "domain.com", "email.com"}
+PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net", "test.com", "domain.com", "email.com", "company.com", "yourcompany.com",
+                       "yourdomain.com", "mycompany.com", "acme.com", "acme.io", "acme.org", "sample.com", "website.com", "mysite.com"}
 
 
 def normalize_company_name(name: str | None) -> str:

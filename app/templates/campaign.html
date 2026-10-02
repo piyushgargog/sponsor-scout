@@ -5,7 +5,7 @@
 <section class="head">
   <div>
     <h1>{{ ev.name }}</h1>
-    <p class="muted">{{ ev.college }}, {{ ev.city }} · {{ ev.event_date|nicedate }} · ~{{ ev.expected_attendance }} attendees · {{ ev.requirements|join(', ') }}</p>
+    <p class="muted">{{ ev.college }}, {{ ev.city }} · {{ ev.event_date|nicedate }}{% if ev.event_end_date %} – {{ ev.event_end_date|nicedate }}{% endif %} · ~{{ ev.expected_attendance }} attendees · {{ ev.requirements|join(', ') }}</p>
   </div>
   <div class="row">
     {{ action(url_for('web.find_sponsors', eid=ev.id), 'Find more sponsors') }}

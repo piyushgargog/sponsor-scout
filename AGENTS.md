@@ -37,7 +37,7 @@ The real LLM route is the user's **Google AI Pro account through Google's offici
 |---|---|
 | Install | `pip install -r requirements.txt` (or `make install`) |
 | Dev server + worker (port 5000, login `demo`) | `python run.py` (or `make dev`) |
-| **Run all tests** | `python -m unittest discover -s tests -t .` (or `make test`) — 201 tests, ~10 s, no credentials, no network |
+| **Run all tests** | `python -m unittest discover -s tests -t .` (or `make test`) — 210 tests, ~10 s, no credentials, no network |
 | Run one test file / test | `python -m unittest tests.test_sending` / `python -m unittest tests.test_sending.DuplicateProtectionTests.test_plus_tag_variant_is_same_mailbox` |
 | Syntax/import sanity | `make check` |
 | Seed demo event only | `python -m app.cli seed` |
@@ -128,7 +128,7 @@ Constraints that implement the product rules — **do not remove or weaken**:
 - `company_research`: `UNIQUE(company_id, research_version)` → research cache key
 - `email_sends`: **partial unique indexes** on live statuses (`SENDING/SENT/REPLIED/BOUNCED`): one per `normalized_email` globally, one per `(campaign_id, company_id)`. A `FAILED` send frees the slot.
 - JSON columns only for flexible research data: `profile_json`, `facts_json`, `stats_json`, `score_json`, `personalization_json`, `evidence_json`, `quality_json`.
-- **No migration system.** Schema is `CREATE … IF NOT EXISTS`. For schema changes either add an idempotent migration step in `Database.init()` or delete `data/*.db` in dev.
+- **No migration system.** Schema is `CREATE … IF NOT EXISTS`. For schema changes either add an idempotent migration step in `Database.init()` or delete `data/*.db` in dev. `Database.init()` already adds `events.event_end_date` this way.
 
 Draft statuses: `DRAFT`, `NEEDS_REVIEW`, `APPROVED`, `SENT`, `FAILED`, `REPLIED`, `BOUNCED`. `leads.email_status` mirrors the latest draft status (`NONE` before any draft). `leads.research_status`: `NOT_STARTED/QUEUED/RUNNING/COMPLETED/FAILED`. `leads.contact_status`: `unknown/found/not_found`.
 
@@ -175,15 +175,15 @@ All routes except `/login` and `/healthz` require login. Every POST requires a C
 Student Audience 20 · Technology Relevance 20 · Sponsorship History 20 · India Presence 15 · Developer/Community 15 · Event Scale 10 = 100. Output: `{score, breakdown{label,score,max,reasons}, reasons[], evidence[{claim,source,fact_id}]}`. Nothing found ⇒ 0 and a `unknown: …` reason. Thresholds are hand-tuned heuristics (see §13). The optional AI commentary (§8.2 step 7) sits beside the score and is clearly labelled advisory in the UI. `HIGH_FIT_THRESHOLD` (70) defines "high fit"; `MIN_FIT_FOR_EMAIL` (40) triggers a quality warning.
 
 ### 8.4 Contact discovery (`research/contacts.py`)
-Emails come only from page text/`mailto:` links. Excludes `noreply/privacy/legal/security/careers/press/support…`. Department/priority from local part (sponsorship 1 > partnerships 2 > community 3 > devrel 4 > marketing 5 > campus 6 > founder 7 > generic 8). Confidence = base + role specificity + relevant page + mailto + same-domain; external-domain addresses capped at 0.5. Names/roles attached only from nearby text. No contact ⇒ `contact_status='not_found'` and email generation is refused (a human may add a verified contact via `/leads/<id>/contact`).
+Emails come only from page text/`mailto:` links (URL-decoded). `contact_is_usable` keeps only addresses whose domain carries the company's brand (drops other companies' addresses and sample ones such as `hello@company.com`, `bot@example.com`) and drops non-sponsorship inboxes, also inside compound local parts (`noreply/privacy/legal/security/careers/press/help/abuse/fraud/billing/*support…`, e.g. `billing-support@`). `score_lead` re-applies it to stored contacts, so rows saved under older rules never become primary (manual contacts are exempt). Department/priority from local part (sponsorship 1 > partnerships 2 > community 3 > devrel 4 > marketing 5 > campus 6 > founder 7 > generic 8). Confidence = base + role specificity + relevant page + mailto + same-domain; the same brand on another TLD (`company.dev` for `company.com`) is capped at 0.7. Names/roles attached only from nearby text; link/button text ("Contact Us", "Report Abuse", "Sponsorship") is never treated as a name. No contact ⇒ `contact_status='not_found'` and email generation is refused (a human may add a verified contact via `/leads/<id>/contact`).
 
 ### 8.5 Email generation (`emailgen.py`, `quality.py`, `pipeline.generate_email`)
 1. `select_facts` (≤8, ranked by category) → `suggest_ask` maps evidence → one of the event's requested sponsorship types.
 2. `prompts.email_prompt` embeds event, benefits, contact, ask options and the numbered VERIFIED FACTS; rules forbid inventing facts/numbers/links.
 3. LLM returns `{subject, body, personalization[{sentence, fact_ids, why}], cta, suggested_ask}`. `finalize_draft` drops unknown fact ids, builds `evidence[]` from real facts, strips any model signature and appends the configured sender signature.
-4. `quality.evaluate` → checks: recipient (block), length 100–180 words (block <40/>300), evidence (block if none), numbers not in brief/facts (warn), greeting vs verified contact, spam phrases/links/caps/generic openers, fit score, contact confidence. Any block ⇒ cannot be approved; any warn ⇒ `NEEDS_REVIEW` (approval requires `acknowledge`).
+4. `quality.evaluate` → checks: recipient (block), length 100–180 words (block <40/>300), evidence (block if none), numbers not in the brief (name, college, city, description, dates, benefits) or cited facts (warn), greeting vs verified contact, spam phrases/links/caps (acronyms from the event, company or facts are not shouting)/generic openers, fit score, contact confidence. Any block ⇒ cannot be approved; any warn ⇒ `NEEDS_REVIEW` (approval requires `acknowledge`).
 5. **AI email review (advisory, `LLM_EMAIL_REVIEW`)**: `quality.llm_review` (`task=email_review`) lists sentences about the company not supported by the verified facts. A flagged sentence counts only if it literally appears in the body; findings are `warn` only (can force `NEEDS_REVIEW`, can never clear a block or approve). Warnings survive edits only while the flagged sentence remains (`carry_llm_checks`). LLM failure ⇒ no extra checks.
-6. **Barter mode** (`emailgen.is_in_kind`: no requested sponsorship type mentions cash/money/fund/stipend/fee): the email prompt adds an in-kind rule, `suggest_ask` favours credits/licences/prizes/swag, and `quality.evaluate` adds an `in_kind_ask` warning if the body mentions money. Cash events are unaffected.
+6. **Barter mode** (`emailgen.is_in_kind`: no requested sponsorship type mentions cash/money/fund/stipend/fee): the email prompt adds an in-kind rule, `suggest_ask` favours credits/licences/prizes/swag, and `quality.evaluate` adds an `in_kind_ask` warning if the body mentions money as a whole word (`fee`/`fees`, not `feels`) that is not taken from a cited fact. Cash events are unaffected.
 7. Regeneration updates the draft in place (version++), never after a send.
 
 ### 8.6 Sending (`sending.py`)
@@ -245,7 +245,7 @@ When changing safety-critical code, mutation-check it: break the behaviour tempo
 
 ## 13. Current status
 
-**Done and tested offline (201 tests):** full pipeline in demo mode through real HTTP routes (`tests/test_e2e.py`); Google-CLI LLM provider against a fake executable; Gemini API provider (mocked HTTP); advisory fit analysis and email review incl. hallucinated-finding rejection; Brave/Google CSE adapters (mocked HTTP); Gmail OAuth/send/refresh/revocation (mocked HTTP); real `HttpFetcher` against a local server; job queue; duplicate/approval/rate-limit logic; CSRF/auth/secret hygiene; environment/config validation. The dev server was also started and `/healthz`, `/login` were hit over real HTTP.
+**Done and tested offline (210 tests):** full pipeline in demo mode through real HTTP routes (`tests/test_e2e.py`); Google-CLI LLM provider against a fake executable; Gemini API provider (mocked HTTP); advisory fit analysis and email review incl. hallucinated-finding rejection; Brave/Google CSE adapters (mocked HTTP); Gmail OAuth/send/refresh/revocation (mocked HTTP); real `HttpFetcher` against a local server; job queue; duplicate/approval/rate-limit logic; CSRF/auth/secret hygiene; environment/config validation. The dev server was also started and `/healthz`, `/login` were hit over real HTTP.
 
 **Not verified against real services (no network/credentials when built):** the `agy` CLI with a real Google AI Pro account, live Gemini API responses, live Brave/Google search, live Gmail OAuth + send, crawling real websites. Expect small shape fixes on first live run. First live test, in order: install `agy` and sign in → `LLM_PROVIDER=cli` → `make llm-check` → real `SEARCH_PROVIDER` → discovery for a tiny event → send 2–3 emails to yourself.
 

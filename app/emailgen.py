@@ -20,6 +20,19 @@ class EmailGenError(Exception):
     pass
 
 
+def human_date_range(start: str, end: str | None) -> str:
+    """'30 October 2026', '30-31 October 2026' or '30 October - 2 November 2026'."""
+    try:
+        a, b = date.fromisoformat(start), date.fromisoformat(end) if end else None
+    except ValueError:
+        return human_date(start)
+    if not b or b <= a:
+        return human_date(start)
+    if (a.year, a.month) == (b.year, b.month):
+        return f"{a.day}-{b.day} {b.strftime('%B %Y')}"
+    return f"{a.day} {a.strftime('%B')} - {human_date(end)}" if a.year == b.year else f"{human_date(start)} - {human_date(end)}"
+
+
 def human_date(iso: str) -> str:
     try:
         d = date.fromisoformat(iso)
@@ -56,7 +69,7 @@ def is_in_kind(event: dict) -> bool:
 
 def event_context(event: dict) -> dict:
     e = dict(event)
-    e["date_human"] = human_date(event["event_date"])
+    e["date_human"] = human_date_range(event["event_date"], event.get("event_end_date"))
     e["benefits"] = (event.get("benefits") or "").strip().rstrip(".") or DEFAULT_BENEFITS
     return e
 

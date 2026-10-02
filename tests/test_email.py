@@ -1,7 +1,7 @@
 import unittest
 
 from app import quality
-from app.emailgen import EmailGenError, event_context, finalize_draft, generate_draft, select_facts, suggest_ask
+from app.emailgen import EmailGenError, core_body, event_context, finalize_draft, generate_draft, select_facts, suggest_ask
 from app.llm.mock import MockProvider
 from app.prompts import email_prompt
 from app.research.extract import extract_facts
@@ -135,6 +135,24 @@ class QualityTests(unittest.TestCase):
         d = generate_draft(ScriptedLLM({"email": bad}), EVENT, CO, CONTACT, facts(), SENDER)
         q = quality.evaluate(d, event_context(EVENT), CO, CONTACT, select_facts(facts()), 80)
         self.assertNotEqual(q["status"], "ok")
+
+    def with_extra(self, extra, ev, co=CO):
+        ch = select_facts(facts())
+        body = core_body(self.good_body()) + "\n\n" + extra   # quality checks ignore text after the signature
+        d = {"subject": "Partnership", "body": body, "personalization": [{"sentence": ch[0]["text"], "fact_ids": [ch[0]["id"]], "why": ""}]}
+        return quality.evaluate(d, event_context(ev), co, CONTACT, ch, 80)
+
+    def test_numbers_and_names_from_the_brief_are_not_flagged(self):
+        ev = dict(EVENT, college="XYZ University, organised by Club-128")
+        self.assertNotIn("accuracy", self.names(self.with_extra("We are Club-128 from XYZ University.", ev), "warn"))
+        self.assertIn("accuracy", self.names(self.with_extra("We are Club-128 and expect 4242 people.", ev), "warn"))
+
+    def test_acronyms_from_names_and_facts_are_not_shouting(self):
+        ev = dict(EVENT, name="JAIX 2026 Hackathon", college="JIIT Noida")
+        co = {"name": "NVIDIA", "industry": "AI"}
+        spam = lambda q: next(c for c in q["checks"] if c["name"] == "spam_risk")["status"]  # noqa: E731
+        self.assertEqual(spam(self.with_extra("JAIX teams at JIIT will use NVIDIA GPUS and LLMS.", ev, co)), "pass")
+        self.assertEqual(spam(self.with_extra("PLEASE REPLY TODAY QUICKLY.", ev, co)), "warn")
 
 
 if __name__ == "__main__":

@@ -1,11 +1,12 @@
 {
   "_readme": "Template for your own event. Copy it to local/ (gitignored) so your event details stay out of the repo, replace every value that starts with REPLACE, then run: make event FILE=local/your-event.json",
-  "_note": "sponsorship_requirements below are in-kind (barter). Add a cash item such as \"cash sponsorship\" if you also want money; barter mode only applies when no requested type mentions cash.",
+  "_note": "sponsorship_requirements below are in-kind (barter). Add a cash item such as \"cash sponsorship\" if you also want money; barter mode only applies when no requested type mentions cash. event_end_date is optional: leave it empty for a one-day event.",
   "event_name": "REPLACE: event name",
   "college": "REPLACE: organiser (college / club / community)",
   "city": "REPLACE: city, or Online",
   "country": "India",
   "event_date": "REPLACE: YYYY-MM-DD",
+  "event_end_date": "",
   "expected_attendance": "REPLACE: expected participants (number)",
   "event_type": "REPLACE: e.g. hackathon, coding challenge, tech fest",
   "description": "REPLACE: one or two lines about the event",

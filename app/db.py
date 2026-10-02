@@ -14,7 +14,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS events(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL, college TEXT NOT NULL, city TEXT NOT NULL, country TEXT NOT NULL DEFAULT 'India',
-  event_date TEXT NOT NULL, expected_attendance INTEGER NOT NULL, event_type TEXT NOT NULL,
+  event_date TEXT NOT NULL, event_end_date TEXT, expected_attendance INTEGER NOT NULL, event_type TEXT NOT NULL,
   description TEXT, benefits TEXT,
   audience_json TEXT NOT NULL, requirements_json TEXT NOT NULL,
   categories_json TEXT NOT NULL DEFAULT '[]', keywords_json TEXT NOT NULL DEFAULT '[]',
@@ -134,7 +134,11 @@ class Database:
         return c
 
     def init(self):
-        self._conn().executescript(SCHEMA)
+        c = self._conn()
+        c.executescript(SCHEMA)
+        # idempotent column additions for databases created before the column existed
+        if "event_end_date" not in {r[1] for r in c.execute("PRAGMA table_info(events)")}:
+            c.execute("ALTER TABLE events ADD COLUMN event_end_date TEXT")
 
     def run(self, sql: str, params=()) -> int:
         cur = self._conn().execute(sql, params)

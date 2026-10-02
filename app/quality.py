@@ -12,6 +12,7 @@ SPAM_PHRASES = ["act now", "limited time", "guaranteed", "100%", "risk-free", "o
 GENERIC_OPENERS = ["dear sir", "dear madam", "to whom it may concern", "hope this email finds you", "hope this finds you", "i hope you are doing well",
                    "we are organizing an amazing", "we are thrilled to announce", "we are excited to announce"]
 URL_RE = re.compile(r"(https?://|www\.)\S+", re.I)
+COMMON_ACRONYMS = {"B.TECH", "CTF", "API", "APIS", "LLMS", "GPUS", "SDKS", "SAAS", "JSON", "HTTP", "REST", "AIML", "MLOPS", "DEVOPS"}
 
 
 def _digits(s):
@@ -107,8 +108,11 @@ def evaluate(draft: dict, event: dict, company: dict, contact: dict | None, fact
         add("personalization_in_body", "warn", "A cited personalization sentence is no longer in the body (edited?): " + "; ".join(missing))
 
     # --- accuracy: numbers that are not in the event brief or verified facts ---
-    allowed = " ".join([str(event.get("expected_attendance", "")), event.get("event_date", ""), event.get("name", ""),
-                        event.get("date_human", "")] + [f["text"] for f in facts if f["id"] in {i for p in valid_pers for i in p["fact_ids"]}] + [event.get("benefits") or ""])
+    cited = [f["text"] for f in facts if f["id"] in {i for p in valid_pers for i in p["fact_ids"]}]
+    brief = [str(event.get("expected_attendance", "")), event.get("event_date", ""), event.get("event_end_date") or "", event.get("name", ""),
+             event.get("date_human", ""), event.get("college", ""), event.get("city", ""), event.get("description") or "",
+             event.get("benefits") or "", " ".join(event.get("requirements") or [])]
+    allowed = " ".join(brief + cited)
     allowed_d = _digits(allowed)
     unverified = []
     for tok in re.findall(r"\d[\d,\.]*", body):
@@ -132,7 +136,9 @@ def evaluate(draft: dict, event: dict, company: dict, contact: dict | None, fact
     # --- spam / tone ---
     low = (subject + " " + body).lower()
     hits = [p for p in SPAM_PHRASES if p in low]
-    caps = [w for w in re.findall(r"\b[A-Z]{4,}\b", body) if w not in {"B.TECH", "CTF", "API", "APIS"}]
+    # names and acronyms the email has to use (event, college, company, facts) are not shouting
+    known_caps = set(re.findall(r"\b[A-Z]{4,}\b", " ".join(brief + [company.get("name", "")] + [f["text"] for f in facts]))) | COMMON_ACRONYMS
+    caps = [w for w in re.findall(r"\b[A-Z]{4,}\b", body) if w not in known_caps]
     links = len(URL_RE.findall(body))
     spam = []
     if hits:
@@ -152,7 +158,11 @@ def evaluate(draft: dict, event: dict, company: dict, contact: dict | None, fact
 
     # --- barter events must not ask for money ---
     if is_in_kind(event):
-        money = [t for t in CASH_TERMS + ("₹", "payment", "budget", "inr") if re.search(r"(?<!\w)" + re.escape(t), body.lower())]
+        # whole words only ("fee" but not "feels"); a term the cited facts themselves use (a payments product) is not an ask
+        fact_text = " ".join(cited).lower()
+        money = [t for t in CASH_TERMS + ("payment", "budget", "inr")
+                 if re.search(r"(?<!\w)" + re.escape(t) + r"(?:s|ing|ed)?(?!\w)", body.lower()) and not re.search(r"(?<!\w)" + re.escape(t), fact_text)]
+        money += ["₹"] if "₹" in body else []
         if money:
             add("in_kind_ask", "warn", "This is a barter (in-kind) event but the email mentions money: " + ", ".join(money[:4]) + ".")
 

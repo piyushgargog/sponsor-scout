@@ -5,7 +5,7 @@ from .jobs import PermanentError
 from .llm.base import LLMError
 from .logging_setup import log_event
 from .prompts import FIT_ANALYSIS_SCHEMA, SYNTHESIS_SCHEMA, SYSTEM_RULES, fit_analysis_prompt, synthesis_prompt
-from .research.contacts import discover_contacts
+from .research.contacts import contact_is_usable, discover_contacts
 from .research.extract import extract_facts, extract_people, verify_quote
 from .research.fetcher import classify_page_kind, crawl_company
 from .scoring import score_lead
@@ -182,7 +182,9 @@ class Pipeline:
         co = self.repo.get_company(lead["company_id"])
         research = research or self.repo.get_research(lead["company_id"], self.s.research_version)
         result = score_lead(ev, co, research)
-        contacts = self.repo.contacts_for(lead["company_id"])
+        # contacts saved by older research runs may predate today's rules; manual entries are trusted as given
+        contacts = [c for c in self.repo.contacts_for(lead["company_id"])
+                    if (c["source_url"] or "").startswith("manual") or contact_is_usable(c["email"], co["domain"])]
         primary = contacts[0] if contacts else None
         self.repo.update_lead(lead_id, fit_score=result["score"], score_json=jdump(result), research_status="COMPLETED",
                               contact_status="found" if primary else "not_found", primary_contact_id=primary["id"] if primary else None)

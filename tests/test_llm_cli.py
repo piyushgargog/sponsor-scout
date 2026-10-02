@@ -46,6 +46,8 @@ elif mode == "text":
 
 class FakeCliCase(unittest.TestCase):
     def setUp(self):
+        if os.name == "nt":
+            self.skipTest("fake CLI is a shebang script; Windows cannot execute it from PATH")
         self.tmp = tempfile.TemporaryDirectory()
         self.bin = os.path.join(self.tmp.name, "agy")
         with open(self.bin, "w") as f:

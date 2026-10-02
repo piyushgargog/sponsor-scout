@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from flask import Flask, request
+from flask import Flask
 
 from .config import Settings
 from .jobs import Worker

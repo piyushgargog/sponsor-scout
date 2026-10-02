@@ -1,7 +1,13 @@
-# secrets / local config
+# secrets / local config (keep .env.example)
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+client_secret*.json
+credentials*.json
+token*.json
 
 # runtime data
 data/*
@@ -9,18 +15,39 @@ data/*
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite3
+*.log
+logs/
 
 # python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
+env/
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# node (if a JS frontend is added later)
+node_modules/
+.next/
+.vite/
 
 # editors / OS
 .idea/
 .vscode/
 .DS_Store
+Thumbs.db
+*.swp
 
-# packaging
+# packaging / scratch
 *.zip
+*.tar.gz
+tmp/

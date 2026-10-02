@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "macros.html" import pill, csrf, action, fitbar %}
+{% block title %}{{ lead.company_name }} · Lead{% endblock %}
+{% block content %}
+<p class="crumb"><a href="{{ url_for('web.leads', event=ev.id) }}">← Leads</a></p>
+<section class="head">
+  <div>
+    <h1>{{ lead.company_name }}</h1>
+    <p class="muted"><a href="{{ lead.website }}" rel="noopener noreferrer" target="_blank">{{ lead.domain }}</a> · {{ lead.industry or 'unknown' }}</p>
+  </div>
+  <div class="row">
+    {{ action(url_for('web.research', lid=lead.id), 'Refresh research', extra='<input type="hidden" name="force" value="1">', cls='btn small ghost') }}
+    {% if lead.research_status == 'COMPLETED' and lead.contact_status == 'found' %}{{ action(url_for('web.generate', lid=lead.id), 'Regenerate email' if draft else 'Generate email', cls='btn small') }}{% endif %}
+  </div>
+</section>
+{% if jobs %}<ul class="jobs inline">{% for j in jobs %}<li>{{ pill(j.status) }} {{ j.label or j.type }}{% if j.error %} <em class="bad">{{ j.error }}</em>{% endif %}</li>{% endfor %}</ul>{% endif %}
+
+<section class="split">
+  <div class="card">
+    <h2>Why it fits</h2>
+    {% if lead.score %}
+      <p class="scoreline"><b>{{ lead.score.score }}</b><span>/ 100</span> {{ fitbar(lead.score) }}</p>
+      <table class="tbl compact"><tbody>
+      {% for key, c in lead.score.breakdown.items() %}<tr><td>{{ c.label }}</td><td class="num">{{ c.score }}/{{ c.max }}</td><td class="muted">{{ c.reasons|join(' ') }}</td></tr>{% endfor %}
+      </tbody></table>
+      <h3>Evidence</h3>
+      {% if lead.score.evidence %}<ul class="evidence">{% for e in lead.score.evidence %}<li>“{{ e.claim }}” <a href="{{ e.source }}" target="_blank" rel="noopener noreferrer">source</a></li>{% endfor %}</ul>
+      {% else %}<p class="empty">No verified evidence found.</p>{% endif %}
+    {% else %}<p class="empty">Not scored yet. Research this company to score it.</p>{% endif %}
+    {% if lead.reason_relevant %}<p class="muted"><b>Discovery note</b> (written by the model from search snippets, not verified): {{ lead.reason_relevant }}</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Company research {{ pill(lead.research_status) }}</h2>
+    {% if research and research.status == 'COMPLETED' %}
+      <p>{{ research.profile.summary }}</p>
+      <p class="muted">Researched {{ research.researched_at|dt }} · {{ research.stats.pages }} pages · {{ research.stats.facts }} facts{% if research.stats.claims_rejected %} · {{ research.stats.claims_rejected }} unverifiable claim(s) discarded{% endif %}</p>
+      {% if research.profile.products %}<h3>Products</h3><ul class="evidence">{% for p in research.profile.products %}<li>“{{ p.quote }}” <a href="{{ p.source_url }}" target="_blank" rel="noopener noreferrer">source</a></li>{% endfor %}</ul>{% endif %}
+      {% if research.profile.launches %}<h3>Recent launches</h3><ul class="evidence">{% for p in research.profile.launches %}<li>“{{ p.quote }}” <a href="{{ p.source_url }}" target="_blank" rel="noopener noreferrer">source</a></li>{% endfor %}</ul>{% endif %}
+      <h3>All verified facts</h3>
+      <ul class="evidence small">{% for f in research.facts %}<li><code>{{ f.id }}</code> {{ f.categories|join(', ') }}: “{{ f.text }}” <a href="{{ f.source_url }}" target="_blank" rel="noopener noreferrer">source</a></li>{% endfor %}</ul>
+    {% elif research and research.status == 'FAILED' %}<p class="bad">{{ research.error }}</p>
+    {% else %}<p class="empty">No research yet.</p>{% endif %}
+  </div>
+</section>
+
+<section class="split">
+  <div class="card">
+    <h2>Contacts</h2>
+    {% if contacts %}<table class="tbl compact"><tbody>{% for c in contacts %}
+      <tr><td>{{ c.email }}{% if c.id == lead.primary_contact_id %} {{ pill('primary','ok') }}{% endif %}<br><span class="muted">{{ c.department }}{% if c.name %} · {{ c.name }}{% endif %}{% if c.role %}, {{ c.role }}{% endif %}</span></td>
+      <td class="num">{{ '%.2f'|format(c.confidence) }}</td><td>{% if c.source_url.startswith('http') %}<a href="{{ c.source_url }}" target="_blank" rel="noopener noreferrer">source</a>{% else %}<span class="muted">{{ c.source_url }}</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
+    {% else %}<p class="empty">contact_status = not_found. Addresses are only taken from public pages; none were found.</p>{% endif %}
+    <form method="post" action="{{ url_for('web.add_contact', lid=lead.id) }}" class="stack small-form">
+      {{ csrf() }}<h3>Add a contact you have verified</h3>
+      <div class="grid3"><input name="email" type="email" placeholder="email" required maxlength="254"><input name="name" placeholder="name (optional)" maxlength="80"><input name="role" placeholder="role (optional)" maxlength="80"></div>
+      <button class="btn small ghost">Add contact</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Sources</h2>
+    {% if sources %}<ul class="evidence small">{% for s in sources %}<li><a href="{{ s.url }}" target="_blank" rel="noopener noreferrer">{{ s.title or s.url }}</a> <span class="muted">{{ s.kind }} · fetched {{ s.fetched_at|dt }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="empty">No pages fetched yet.</p>{% endif %}
+  </div>
+</section>
+
+<section id="email" class="card">
+  <h2>Email {% if draft %}{{ pill(draft.status) }}{% endif %}</h2>
+  {% if draft %}
+  <div class="split wide">
+    <form method="post" action="{{ url_for('web.save_draft', did=draft.id) }}" class="stack">
+      {{ csrf() }}
+      <label>To <input value="{{ (contacts|selectattr('id','equalto',draft.contact_id)|first).email if contacts else '' }}" disabled></label>
+      <label>Subject <input name="subject" value="{{ draft.subject }}" maxlength="150" {% if draft.status in ('SENT','REPLIED','BOUNCED') %}disabled{% endif %}></label>
+      <label>Body <textarea name="body" rows="18" {% if draft.status in ('SENT','REPLIED','BOUNCED') %}disabled{% endif %}>{{ draft.body }}</textarea></label>
+      {% if draft.status not in ('SENT','REPLIED','BOUNCED') %}<button class="btn small ghost">Save edits (re-runs checks, resets approval)</button>{% endif %}
+      {% if draft.error %}<p class="bad">{{ draft.error }}</p>{% endif %}
+      {% if send %}<p class="muted">Send record: {{ send.status|lower }}{% if send.gmail_message_id %} · message id <code>{{ send.gmail_message_id }}</code>{% endif %}{% if send.sent_at %} · {{ send.sent_at|dt }}{% endif %}{% if send.sender_account %} · from {{ send.sender_account }}{% endif %}</p>{% endif %}
+    </form>
+    <div>
+      <h3>Quality checks <small class="muted">({{ draft.quality.status|replace('_',' ') }}, {{ draft.quality.score }}/100)</small></h3>
+      <ul class="checks">{% for c in draft.quality.checks %}<li class="{{ c.status }}"><b>{{ c.name|replace('_',' ') }}</b> {{ c.detail }}</li>{% endfor %}</ul>
+      <h3>Why each claim was written</h3>
+      {% for p in draft.personalization %}<div class="why"><blockquote>{{ p.sentence }}</blockquote><p class="muted">{{ p.why }}</p>
+        {% for fid in p.fact_ids %}{% for e in draft.evidence if e.fact_id == fid %}<p class="src"><code>{{ fid }}</code> “{{ e.claim }}” <a href="{{ e.source }}" target="_blank" rel="noopener noreferrer">source</a></p>{% endfor %}{% endfor %}</div>
+      {% else %}<p class="bad">No claim is linked to evidence.</p>{% endfor %}
+      <p class="muted"><b>Suggested ask:</b> {{ draft.suggested_ask }}<br><b>CTA:</b> {{ draft.cta }}<br>Model: {{ draft.model }} · v{{ draft.version }}</p>
+
+      <div class="decision">
+      {% if draft.status in ('DRAFT','NEEDS_REVIEW') %}
+        <form method="post" action="{{ url_for('web.approve', did=draft.id) }}" class="stack">
+          {{ csrf() }}
+          {% if draft.status == 'NEEDS_REVIEW' %}<label class="check"><input type="checkbox" name="acknowledge" value="1"> I have reviewed the warnings above</label>{% endif %}
+          <button class="btn">Approve</button>
+        </form>
+      {% elif draft.status == 'APPROVED' %}
+        <p>Approved by {{ draft.approved_by }} on {{ draft.approved_at|dt }}.</p>
+        {{ action(url_for('web.send', did=draft.id), 'Send now', cls='btn primary', confirm='Send this email now? This cannot be undone.') }}
+        {{ action(url_for('web.unapprove', did=draft.id), 'Revoke approval', cls='btn small ghost') }}
+        {% if not can_send %}<p class="bad">Connect a sending account first.</p>{% endif %}
+      {% elif draft.status == 'FAILED' %}
+        {{ action(url_for('web.reopen', did=draft.id), 'Reopen for review', cls='btn') }}
+      {% elif draft.status in ('SENT','REPLIED','BOUNCED') %}
+        <div class="row">{{ action(url_for('web.mark', did=draft.id), 'Mark replied', cls='btn small', extra='<input type="hidden" name="outcome" value="REPLIED">') }}
+        {{ action(url_for('web.mark', did=draft.id), 'Mark bounced', cls='btn small ghost', extra='<input type="hidden" name="outcome" value="BOUNCED">') }}</div>
+      {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+    <p class="empty">{% if lead.contact_status == 'not_found' %}No public contact found, so no email can be drafted. Add a verified contact above.{% elif lead.research_status != 'COMPLETED' %}Research this company first.{% else %}No email drafted yet.{% endif %}</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Activity</h2>
+  {% if activity %}<ul class="activity">{% for a in activity %}<li><span class="muted">{{ a.ts|dt }}</span> {{ a.action|replace('_',' ') }} <span class="muted">by {{ a.actor }}</span></li>{% endfor %}</ul>{% else %}<p class="empty">No activity yet.</p>{% endif %}
+</section>
+{% endblock %}

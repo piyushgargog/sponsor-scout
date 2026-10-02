@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Sponsor Scout{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body data-csrf="{{ csrf_token() }}">
+{% if session.get('user') %}
+<header class="top">
+  <a class="brand" href="{{ url_for('web.dashboard') }}">Sponsor Scout</a>
+  <nav>
+    <a href="{{ url_for('web.dashboard') }}" {% if request.endpoint=='web.dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+    <a href="{{ url_for('web.leads') }}" {% if request.endpoint in ('web.leads','web.lead_detail') %}aria-current="page"{% endif %}>Leads</a>
+    {% if ev is defined and ev %}<a href="{{ url_for('web.campaign', eid=ev.id) }}" {% if request.endpoint=='web.campaign' %}aria-current="page"{% endif %}>Campaign</a>{% endif %}
+  </nav>
+  <div class="acct">
+    {% if mail_account %}
+      <span class="chip ok" title="Sending account">{{ mail_account.email }}</span>
+      <form method="post" action="{{ url_for('web.gmail_disconnect') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link">Disconnect</button></form>
+    {% elif mail_provider == 'gmail' %}
+      <a class="btn small" href="{{ url_for('web.gmail_connect') }}">Connect Gmail</a>
+    {% else %}
+      <form method="post" action="{{ url_for('web.demo_connect') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ request.path }}"><button class="btn small ghost">Connect demo sender</button></form>
+    {% endif %}
+    <form method="post" action="{{ url_for('web.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="link">Log out</button></form>
+  </div>
+</header>
+{% endif %}
+<main>
+  {% with msgs = get_flashed_messages(with_categories=true) %}{% for cat, m in msgs %}<div class="flash {{ cat }}" role="status">{{ m }}</div>{% endfor %}{% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="foot">{% if settings.search_provider == 'mock' %}Demo search: fictional companies. {% endif %}{% if mail_provider == 'mock' %}Demo mailer: nothing is sent to real recipients. {% endif %}LLM: {{ settings.llm_provider }} · Search: {{ settings.search_provider }} · Mail: {{ mail_provider }}</footer>
+</body>
+</html>

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "macros.html" import pill, csrf, action %}
+{% block title %}Dashboard · Sponsor Scout{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>Describe your event. We find the companies worth emailing.</h1>
+    <p class="lede">Discovery, public-source research, an explainable fit score, and a personalised draft for each company. You approve every email before it leaves.</p>
+  </div>
+  <form method="post" action="{{ url_for('web.create_event') }}" class="card event-form">
+    {{ csrf() }}
+    <h2>New event</h2>
+    <div class="grid2">
+      <label>Event name <input name="event_name" required maxlength="120" placeholder="XYZ Tech Fest 2026"></label>
+      <label>College <input name="college" required maxlength="120" placeholder="XYZ University"></label>
+      <label>City <input name="city" required maxlength="80" placeholder="Delhi"></label>
+      <label>Country <input name="country" value="India" maxlength="60"></label>
+      <label>Event date <input type="date" name="event_date" required></label>
+      <label>Expected attendance <input type="number" name="expected_attendance" required min="10" max="100000" placeholder="500"></label>
+      <label>Event type <input name="event_type" value="technology" maxlength="60"></label>
+      <label>Company categories (optional) <input name="categories" placeholder="AI, developer tools, cloud, security"></label>
+    </div>
+    <label>Audience <input name="audience" required placeholder="B.Tech students, AI/ML students, developers, startup enthusiasts"></label>
+    <label>Sponsorship wanted <input name="sponsorship_requirements" required placeholder="cash sponsorship, API credits, cloud credits, swag, speakers, workshop partners"></label>
+    <label>What you offer sponsors <input name="benefits" maxlength="400" placeholder="logo on banners, a 20-minute workshop slot, a booth"></label>
+    <label>Extra keywords (optional) <input name="keywords" placeholder="hackathon, open source"></label>
+    <button class="btn">Create event and find sponsors</button>
+  </form>
+</section>
+
+<section>
+  <h2 class="sr">Totals</h2>
+  <dl class="metrics">
+    <div><dt>Companies found</dt><dd>{{ stats.companies }}</dd></div>
+    <div><dt>High-fit leads</dt><dd>{{ stats.high_fit }}</dd></div>
+    <div><dt>Emails drafted</dt><dd>{{ stats.drafted }}</dd></div>
+    <div><dt>Emails sent</dt><dd>{{ stats.sent }}</dd></div>
+    <div><dt>Replies</dt><dd>{{ stats.replies }}</dd></div>
+    <div><dt>Conversion</dt><dd>{{ stats.conversion }}%</dd></div>
+  </dl>
+  <p class="muted">Conversion = replies ÷ sent. Replies are marked manually on each lead.</p>
+</section>
+
+<section>
+  <h2>Events</h2>
+  {% if events %}
+  <table class="tbl">
+    <thead><tr><th>Event</th><th>Date</th><th>Companies</th><th>High fit</th><th>Drafted</th><th>Sent</th><th>Replies</th><th></th></tr></thead>
+    <tbody>
+    {% for e in events %}
+    <tr><td><a href="{{ url_for('web.campaign', eid=e.id) }}"><strong>{{ e.name }}</strong></a><br><span class="muted">{{ e.college }}, {{ e.city }}</span></td>
+      <td>{{ e.event_date|nicedate }}</td><td>{{ e.stats.companies }}</td><td>{{ e.stats.high_fit }}</td><td>{{ e.stats.drafted }}</td><td>{{ e.stats.sent }}</td><td>{{ e.stats.replies }}</td>
+      <td class="right"><a class="btn small ghost" href="{{ url_for('web.leads', event=e.id) }}">Leads</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="empty">No events yet. Create one above to start finding sponsors.</p>{% endif %}
+</section>
+{% endblock %}

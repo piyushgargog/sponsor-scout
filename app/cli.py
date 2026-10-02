@@ -1,0 +1,70 @@
+"""CLI: python -m app.cli [init-db | seed [--full] | models | worker | run-jobs]"""
+import sys
+import time
+
+from .config import Settings
+
+DEMO_EVENT = {
+    "name": "XYZ Tech Fest 2026", "college": "XYZ University", "city": "Delhi", "country": "India", "event_date": "2026-11-20",
+    "expected_attendance": 500, "event_type": "technology",
+    "audience": ["B.Tech students", "AI/ML students", "developers", "startup enthusiasts"],
+    "requirements": ["cash sponsorship", "API credits", "cloud credits", "swag", "speakers", "workshop partners"],
+    "description": "Annual student tech fest with hackathon, workshops and talks.",
+    "benefits": "logo placement across the event, a demo or workshop slot, and direct access to attendees",
+    "categories": [], "keywords": [],
+}
+
+
+def seed_demo_event(svc) -> int:
+    """Creates the demo event once (no leads: click 'Find sponsors' to run the pipeline)."""
+    ex = svc.db.row("SELECT id FROM events WHERE name=?", (DEMO_EVENT["name"],))
+    if ex:
+        return ex["id"]
+    return svc.repo.create_event(DEMO_EVENT, svc.settings.campaign_daily_limit, "seed")
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "help"
+    settings = Settings.from_env()
+    settings.validate_for_runtime()
+    from .logging_setup import setup_logging
+    setup_logging(settings.log_level)
+    from .services import build_services
+    svc = build_services(settings)
+    if cmd == "init-db":
+        print("Database ready at", settings.db_path)
+    elif cmd == "seed":
+        eid = seed_demo_event(svc)
+        if "--full" in argv:
+            svc.pipeline.discover(eid, "seed")
+            svc.queue.run_all()
+            print("Ran discovery + research for demo event", eid)
+        print("Demo event id:", eid)
+    elif cmd == "models":
+        from .llm.gemini import GeminiProvider, rank_models
+        if not settings.gemini_api_key:
+            sys.exit("Set GEMINI_API_KEY first.")
+        g = GeminiProvider(settings.gemini_api_key)
+        models = g.list_models()
+        print("Models that support generateContent (best-first auto-pick order):")
+        for n in rank_models(models):
+            print("  ", n)
+        print("\nAll models returned by the API:", ", ".join(sorted(m["name"].removeprefix("models/") for m in models)))
+    elif cmd == "worker":
+        from .jobs import Worker
+        w = Worker(svc.queue, settings.worker_threads)
+        w.start()
+        print("Worker running; Ctrl-C to stop.")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            w.stop()
+    elif cmd == "run-jobs":
+        print("Processed", svc.queue.run_all(), "jobs")
+    else:
+        print(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

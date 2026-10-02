@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "macros.html" import pill, csrf, action, fitbar %}
+{% block title %}Leads · {{ ev.name }}{% endblock %}
+{% block content %}
+<section class="head">
+  <div><h1>Leads</h1><p class="muted">{{ ev.name }} · sorted by fit score</p></div>
+  <form method="get" class="row">
+    <select name="event" aria-label="Event">{% for e in events_nav %}<option value="{{ e.id }}" {% if e.id==ev.id %}selected{% endif %}>{{ e.name }}</option>{% endfor %}</select>
+    <input type="search" name="q" value="{{ q }}" placeholder="Search company or industry" aria-label="Search">
+    <select name="filter" aria-label="Filter"><option value="">All</option><option value="high" {% if flt=='high' %}selected{% endif %}>High fit only</option></select>
+    <button class="btn small ghost">Apply</button>
+  </form>
+</section>
+<div id="jobbar" class="jobbar {% if jsum.QUEUED + jsum.RUNNING == 0 %}idle{% endif %}" data-poll-event="{{ ev.id }}" data-active="{{ jsum.QUEUED + jsum.RUNNING }}" aria-live="polite">
+  <span id="jobtext">{% if jsum.QUEUED + jsum.RUNNING %}Working: {{ jsum.RUNNING }} running, {{ jsum.QUEUED }} queued{% else %}All jobs finished{% endif %}</span>
+</div>
+{% if rows %}
+<div class="scroll"><table class="tbl leads">
+<thead><tr><th>Company</th><th>Industry</th><th>Fit score</th><th>Contact</th><th>Research</th><th>Email</th><th>Actions</th></tr></thead>
+<tbody>
+{% for l in rows %}
+<tr>
+  <td><a href="{{ url_for('web.lead_detail', lid=l.id) }}"><strong>{{ l.company_name }}</strong></a><br><span class="muted">{{ l.domain }}</span></td>
+  <td>{{ l.industry or 'unknown' }}</td>
+  <td class="fitcell"><b>{{ l.fit_score if l.fit_score is not none else '–' }}</b>{{ fitbar(l.score, 'sm') }}</td>
+  <td>{% if l.contact_status == 'found' %}{{ l.contact_email }}<br><span class="muted">{{ l.contact_dept }}{% if l.contact_name %} · {{ l.contact_name }}{% endif %}</span>
+      {% elif l.contact_status == 'not_found' %}{{ pill('not found', 'bad') }}{% else %}<span class="muted">unknown</span>{% endif %}</td>
+  <td>{{ pill(l.research_status) }}</td>
+  <td>{{ pill(l.email_status) }}</td>
+  <td class="acts">
+    {% set here = request.full_path.rstrip('?') %}
+    {% if l.research_status in ('NOT_STARTED','FAILED') %}{{ action(url_for('web.research', lid=l.id), 'Research', next=here) }}
+    {% elif l.research_status == 'COMPLETED' and l.email_status == 'NONE' and l.contact_status == 'found' %}{{ action(url_for('web.generate', lid=l.id), 'Generate Email', next=here) }}{% endif %}
+    {% if l.draft %}
+      <a class="btn small ghost" href="{{ url_for('web.lead_detail', lid=l.id) }}#email">Review</a>
+      {% if l.draft.status == 'DRAFT' %}{{ action(url_for('web.approve', did=l.draft.id), 'Approve', next=here, cls='btn small') }}{% endif %}
+      {% if l.draft.status == 'APPROVED' %}{{ action(url_for('web.send', did=l.draft.id), 'Send', next=here, cls='btn small primary', confirm='Send this email to ' ~ (l.contact_email or '') ~ '?') }}{% endif %}
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}<p class="empty">No leads match. {% if not q and not flt %}Run “Find sponsors” from the campaign page.{% endif %}</p>{% endif %}
+{% endblock %}

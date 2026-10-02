@@ -1,0 +1,20 @@
+{% macro pill(text, kind='') %}<span class="pill {{ kind or text|lower|replace('_','-') }}">{{ text|replace('_',' ')|lower }}</span>{% endmacro %}
+
+{% macro fitbar(score, size='') %}
+{% if score and score.breakdown %}
+<div class="fitbar {{ size }}" role="img" aria-label="Fit score {{ score.score }} of 100">
+  {% for key, c in score.breakdown.items() %}
+  <span class="seg s{{ c.max }}" title="{{ c.label }}: {{ c.score }}/{{ c.max }}"><i class="pw{{ ((c.score / c.max * 100) / 5)|round|int * 5 }}"></i></span>
+  {% endfor %}
+</div>
+{% else %}<span class="muted">not scored</span>{% endif %}
+{% endmacro %}
+
+{% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
+
+{% macro action(url, label, next='', cls='btn small', confirm='', extra='') %}
+<form method="post" action="{{ url }}" class="inline" {% if confirm %}data-confirm="{{ confirm }}"{% endif %}>
+  {{ csrf() }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}{{ extra|safe }}
+  <button class="{{ cls }}">{{ label }}</button>
+</form>
+{% endmacro %}

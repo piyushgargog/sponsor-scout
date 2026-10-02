@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Log in · Sponsor Scout{% endblock %}
+{% block content %}
+<section class="login">
+  <h1>Sponsor Scout</h1>
+  <p class="lede">Sign in to run your sponsorship outreach.</p>
+  <form method="post" class="stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="next" value="{{ request.args.get('next','') }}">
+    <label>Password <input type="password" name="password" autofocus required autocomplete="current-password"></label>
+    <button class="btn">Log in</button>
+    {% if dev %}<p class="muted">Development mode: if ADMIN_PASSWORD is unset the password is <code>demo</code>.</p>{% endif %}
+  </form>
+</section>
+{% endblock %}

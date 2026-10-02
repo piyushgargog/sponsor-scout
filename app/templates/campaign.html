@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "macros.html" import pill, csrf, action, fitbar %}
+{% block title %}{{ ev.name }} · Campaign{% endblock %}
+{% block content %}
+<section class="head">
+  <div>
+    <h1>{{ ev.name }}</h1>
+    <p class="muted">{{ ev.college }}, {{ ev.city }} · {{ ev.event_date|nicedate }} · ~{{ ev.expected_attendance }} attendees · {{ ev.requirements|join(', ') }}</p>
+  </div>
+  <div class="row">
+    {{ action(url_for('web.find_sponsors', eid=ev.id), 'Find more sponsors') }}
+    {% if camp.status == 'ACTIVE' %}{{ action(url_for('web.bulk', eid=ev.id), 'Pause sending', cls='btn small ghost', extra='<input type="hidden" name="action" value="pause">') }}
+    {% else %}{{ action(url_for('web.bulk', eid=ev.id), 'Resume sending', extra='<input type="hidden" name="action" value="resume">') }}{% endif %}
+  </div>
+</section>
+
+<div id="jobbar" class="jobbar {% if jsum.QUEUED + jsum.RUNNING == 0 %}idle{% endif %}" data-poll-event="{{ ev.id }}" data-active="{{ jsum.QUEUED + jsum.RUNNING }}" aria-live="polite">
+  <span id="jobtext">{% if jsum.QUEUED + jsum.RUNNING %}Working: {{ jsum.RUNNING }} running, {{ jsum.QUEUED }} queued{% else %}All jobs finished{% endif %}{% if jsum.FAILED %} · {{ jsum.FAILED }} failed{% endif %}</span>
+</div>
+
+<ol class="steps">
+  <li><b>{{ stats.companies }}</b><span>Companies found</span></li>
+  <li><b>{{ stats.researched }}<small>/{{ stats.companies }}</small></b><span>Researched</span></li>
+  <li><b>{{ stats.high_fit }}</b><span>High fit (≥{{ settings.high_fit_threshold }})</span></li>
+  <li><b>{{ stats.drafted }}</b><span>Drafted</span></li>
+  <li><b>{{ stats.approved }}</b><span>Approved</span></li>
+  <li><b>{{ stats.sent }}</b><span>Sent</span></li>
+</ol>
+
+<section class="split">
+  <div>
+    <h2>Next actions</h2>
+    <div class="row wrap">
+      {{ action(url_for('web.bulk', eid=ev.id), 'Research all pending', extra='<input type="hidden" name="action" value="research_all">') }}
+      {{ action(url_for('web.bulk', eid=ev.id), 'Draft emails for high-fit leads', extra='<input type="hidden" name="action" value="generate_high_fit">') }}
+      {{ action(url_for('web.bulk', eid=ev.id), 'Send all approved', cls='btn small primary', confirm='Send every approved email now? They are throttled and capped per day.', extra='<input type="hidden" name="action" value="send_approved">') }}
+      <a class="btn small ghost" href="{{ url_for('web.leads', event=ev.id) }}">Review all leads</a>
+    </div>
+    <dl class="mini">
+      <div><dt>Sent</dt><dd>{{ stats.sent }}</dd></div><div><dt>Pending</dt><dd>{{ stats.pending }}</dd></div>
+      <div><dt>Replies</dt><dd>{{ stats.replies }}</dd></div><div><dt>With contact</dt><dd>{{ stats.with_contact }}</dd></div>
+      <div><dt>Daily send cap</dt><dd>{{ camp.daily_limit }}</dd></div><div><dt>Status</dt><dd>{{ pill(camp.status) }}</dd></div>
+    </dl>
+  </div>
+  <div>
+    <h2>Activity</h2>
+    {% if jobs %}<ul class="jobs">
+      {% for j in jobs %}<li>{{ pill(j.status) }} <span>{{ j.label or j.type }}</span>{% if j.error %}<em class="bad">{{ j.error }}</em>{% endif %}</li>{% endfor %}
+    </ul>{% else %}<p class="empty">Nothing running.</p>{% endif %}
+  </div>
+</section>
+
+<section>
+  <h2>Top leads</h2>
+  {% if leads %}
+  <table class="tbl"><thead><tr><th>Company</th><th>Fit</th><th>Contact</th><th>Email</th></tr></thead><tbody>
+  {% for l in leads %}<tr><td><a href="{{ url_for('web.lead_detail', lid=l.id) }}"><strong>{{ l.company_name }}</strong></a><br><span class="muted">{{ l.industry or 'unknown' }}</span></td>
+    <td class="fitcell"><b>{{ l.fit_score if l.fit_score is not none else '–' }}</b>{{ fitbar(l.score, 'sm') }}</td>
+    <td>{{ l.contact_email or pill('not found', 'bad') }}</td><td>{{ pill(l.email_status) }}</td></tr>{% endfor %}
+  </tbody></table>
+  {% else %}<p class="empty">No companies yet. Discovery runs in the background; this page updates when it finishes.</p>{% endif %}
+</section>
+{% endblock %}

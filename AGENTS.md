@@ -37,11 +37,12 @@ The real LLM route is the user's **Google AI Pro account through Google's offici
 |---|---|
 | Install | `pip install -r requirements.txt` (or `make install`) |
 | Dev server + worker (port 5000, login `demo`) | `python run.py` (or `make dev`) |
-| **Run all tests** | `python -m unittest discover -s tests -t .` (or `make test`) — 189 tests, ~10 s, no credentials, no network |
+| **Run all tests** | `python -m unittest discover -s tests -t .` (or `make test`) — 201 tests, ~10 s, no credentials, no network |
 | Run one test file / test | `python -m unittest tests.test_sending` / `python -m unittest tests.test_sending.DuplicateProtectionTests.test_plus_tag_variant_is_same_mailbox` |
 | Syntax/import sanity | `make check` |
 | Seed demo event only | `python -m app.cli seed` |
 | Seed + run discovery/research synchronously | `python -m app.cli seed --full` |
+| Create an event from a JSON preset and find sponsors | `make event FILE=events/<file>.json` (`python -m app.cli create-event FILE [--run]`; rejects `REPLACE` placeholders) |
 | Drain the job queue synchronously | `python -m app.cli run-jobs` |
 | Worker only | `WORKER_ENABLED=0` on the web process, then `python -m app.cli worker` |
 | Smoke-test the LLM provider (CLI sign-in check) | `python -m app.cli llm-check` (or `make llm-check`) |
@@ -77,12 +78,14 @@ app/
   cli.py            init-db | seed [--full] | llm-check | models | worker | run-jobs
   llm/              base.py (LLMProvider, errors, JSON parse/validate/repair) · cli.py (Google CLI subprocess provider)
                     · gemini.py (optional API-key REST provider) · mock.py · openai_stub.py
-  search/           base.py · web.py (Brave, Google CSE) · mock.py
+  search/           base.py · web.py (Brave, Google CSE) · list.py (curated CSV, no API) · mock.py
   research/         fetcher.py (safe HTTP + crawl) · extract.py (facts/people/quote verify) · contacts.py
   mailer/           base.py · gmail.py (OAuth+send) · accounts.py (encrypted tokens) · mock.py
   fixtures/mock_data.py   FICTIONAL demo companies + their fake web pages (demo mode only)
   templates/        base, macros, login, dashboard, campaign, leads, lead_detail
   static/           app.css, app.js
+events/             example-event.json (template with the new-event form's keys; users copy it to the gitignored local/) and example-sponsor-list.csv (format for SEARCH_PROVIDER=list)
+local/              gitignored: users' own event files, sponsor lists and outputs. Never commit event-specific data
 tests/              unittest suites + helpers.py (AppCase, ScriptedLLM, LogCapture). test_llm_cli.py uses a fake CLI executable;
                     test_ai_advisory.py covers fit analysis / email review
 data/               SQLite file lives here at runtime (gitignored)
@@ -180,7 +183,8 @@ Emails come only from page text/`mailto:` links. Excludes `noreply/privacy/legal
 3. LLM returns `{subject, body, personalization[{sentence, fact_ids, why}], cta, suggested_ask}`. `finalize_draft` drops unknown fact ids, builds `evidence[]` from real facts, strips any model signature and appends the configured sender signature.
 4. `quality.evaluate` → checks: recipient (block), length 100–180 words (block <40/>300), evidence (block if none), numbers not in brief/facts (warn), greeting vs verified contact, spam phrases/links/caps/generic openers, fit score, contact confidence. Any block ⇒ cannot be approved; any warn ⇒ `NEEDS_REVIEW` (approval requires `acknowledge`).
 5. **AI email review (advisory, `LLM_EMAIL_REVIEW`)**: `quality.llm_review` (`task=email_review`) lists sentences about the company not supported by the verified facts. A flagged sentence counts only if it literally appears in the body; findings are `warn` only (can force `NEEDS_REVIEW`, can never clear a block or approve). Warnings survive edits only while the flagged sentence remains (`carry_llm_checks`). LLM failure ⇒ no extra checks.
-6. Regeneration updates the draft in place (version++), never after a send.
+6. **Barter mode** (`emailgen.is_in_kind`: no requested sponsorship type mentions cash/money/fund/stipend/fee): the email prompt adds an in-kind rule, `suggest_ask` favours credits/licences/prizes/swag, and `quality.evaluate` adds an `in_kind_ask` warning if the body mentions money. Cash events are unaffected.
+7. Regeneration updates the draft in place (version++), never after a send.
 
 ### 8.6 Sending (`sending.py`)
 `approve` (re-runs quality) → `request_send` enqueues `send_email` → `send_now` checks: approved-by-human, valid recipient (placeholder domains blocked when `MAIL_PROVIDER=gmail`), campaign ACTIVE, **daily cap**, **min interval** (`Defer`), **company cooldown** across campaigns, then inserts an `email_sends` row (`SENDING`) — the partial unique indexes make duplicates fail atomically — calls the provider, records message/thread id, audit-logs. Provider failure ⇒ `FAILED` row + draft `FAILED` (human can `reopen`). Editing a draft resets approval.
@@ -217,11 +221,11 @@ Tasks the LLM performs: discovery queries, candidate classification, research sy
 
 See `.env.example` (authoritative; a consistency check once confirmed every variable read in `config.py` is documented). Summary:
 
-`APP_ENV`, `SECRET_KEY`, `ADMIN_PASSWORD`, `DATABASE_URL` (sqlite only) · `LLM_PROVIDER` (`mock|cli|gemini|openai`; aliases `antigravity/agy/gemini_cli` → `cli`), `LLM_CLI_BIN`, `LLM_CLI_FLAVOR`, `LLM_CLI_MODEL`, `LLM_CLI_TIMEOUT_SECONDS`, `LLM_CLI_CONCURRENCY`, `LLM_CLI_PASS_ENV`, `LLM_FIT_ANALYSIS`, `LLM_EMAIL_REVIEW` · optional `GEMINI_API_KEY`, `GEMINI_MODEL` (API route only) · `SEARCH_PROVIDER` (`mock|brave|google_cse`), `BRAVE_API_KEY`, `GOOGLE_CSE_KEY`, `GOOGLE_CSE_CX` · `MAIL_PROVIDER`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` · `SENDER_NAME/ROLE/ORG` · `RESEARCH_VERSION`, `RESEARCH_TTL_DAYS`, `MAX_PAGES_PER_COMPANY`, `FETCH_DELAY_SECONDS`, `HIGH_FIT_THRESHOLD`, `MIN_FIT_FOR_EMAIL`, `CAMPAIGN_DAILY_LIMIT`, `SEND_INTERVAL_SECONDS`, `COMPANY_COOLDOWN_DAYS`, `WORKER_THREADS`, `WORKER_ENABLED`, `LOG_LEVEL`.
+`APP_ENV`, `SECRET_KEY`, `ADMIN_PASSWORD`, `DATABASE_URL` (sqlite only) · `LLM_PROVIDER` (`mock|cli|gemini|openai`; aliases `antigravity/agy/gemini_cli` → `cli`), `LLM_CLI_BIN`, `LLM_CLI_FLAVOR`, `LLM_CLI_MODEL`, `LLM_CLI_TIMEOUT_SECONDS`, `LLM_CLI_CONCURRENCY`, `LLM_CLI_PASS_ENV`, `LLM_FIT_ANALYSIS`, `LLM_EMAIL_REVIEW` · optional `GEMINI_API_KEY`, `GEMINI_MODEL` (API route only) · `SEARCH_PROVIDER` (`mock|brave|google_cse|list`), `BRAVE_API_KEY`, `GOOGLE_CSE_KEY`, `GOOGLE_CSE_CX`, `SEARCH_LIST_FILE`, `MAX_DISCOVERY_CANDIDATES` · `MAIL_PROVIDER`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` · `SENDER_NAME/ROLE/ORG` · `RESEARCH_VERSION`, `RESEARCH_TTL_DAYS`, `MAX_PAGES_PER_COMPANY`, `FETCH_DELAY_SECONDS`, `HIGH_FIT_THRESHOLD`, `MIN_FIT_FOR_EMAIL`, `CAMPAIGN_DAILY_LIMIT`, `SEND_INTERVAL_SECONDS`, `COMPANY_COOLDOWN_DAYS`, `WORKER_THREADS`, `WORKER_ENABLED`, `LOG_LEVEL`.
 
 Defaults: `LLM_PROVIDER` = gemini if only `GEMINI_API_KEY` is set (legacy) else mock — `.env.example` sets `mock` explicitly; `cli` requires the binary on PATH or startup fails with a clear message; `MAIL_PROVIDER` = gmail if client id set else mock; `SEARCH_PROVIDER` = mock; `SEND_INTERVAL_SECONDS` is forced to 0 for the mock mailer. In production the app refuses to start without a ≥32-char `SECRET_KEY` and an `ADMIN_PASSWORD`. In development an empty `ADMIN_PASSWORD` means `demo`.
 
-**Never commit `.env`. Never read it with tools. Never log or render keys/tokens.**
+**Never commit `.env`. Coding agents must not read it. Never log or render keys/tokens.**
 
 ## 12. Invariants — do not break (each has tests)
 
@@ -241,7 +245,7 @@ When changing safety-critical code, mutation-check it: break the behaviour tempo
 
 ## 13. Current status
 
-**Done and tested offline (189 tests):** full pipeline in demo mode through real HTTP routes (`tests/test_e2e.py`); Google-CLI LLM provider against a fake executable; Gemini API provider (mocked HTTP); advisory fit analysis and email review incl. hallucinated-finding rejection; Brave/Google CSE adapters (mocked HTTP); Gmail OAuth/send/refresh/revocation (mocked HTTP); real `HttpFetcher` against a local server; job queue; duplicate/approval/rate-limit logic; CSRF/auth/secret hygiene; environment/config validation. The dev server was also started and `/healthz`, `/login` were hit over real HTTP.
+**Done and tested offline (201 tests):** full pipeline in demo mode through real HTTP routes (`tests/test_e2e.py`); Google-CLI LLM provider against a fake executable; Gemini API provider (mocked HTTP); advisory fit analysis and email review incl. hallucinated-finding rejection; Brave/Google CSE adapters (mocked HTTP); Gmail OAuth/send/refresh/revocation (mocked HTTP); real `HttpFetcher` against a local server; job queue; duplicate/approval/rate-limit logic; CSRF/auth/secret hygiene; environment/config validation. The dev server was also started and `/healthz`, `/login` were hit over real HTTP.
 
 **Not verified against real services (no network/credentials when built):** the `agy` CLI with a real Google AI Pro account, live Gemini API responses, live Brave/Google search, live Gmail OAuth + send, crawling real websites. Expect small shape fixes on first live run. First live test, in order: install `agy` and sign in → `LLM_PROVIDER=cli` → `make llm-check` → real `SEARCH_PROVIDER` → discovery for a tiny event → send 2–3 emails to yourself.
 

@@ -51,3 +51,6 @@ Thumbs.db
 *.zip
 *.tar.gz
 tmp/
+
+# your own events, sponsor lists and outputs (keep them out of the public repo)
+local/

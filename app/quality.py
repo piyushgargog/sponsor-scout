@@ -2,7 +2,10 @@
 import re
 
 from .emailgen import core_body
+from .llm.base import LLMError
+from .logging_setup import log_event
 from .normalize import is_placeholder_email, is_valid_email
+from .prompts import EMAIL_REVIEW_SCHEMA, SYSTEM_RULES, email_review_prompt
 
 SPAM_PHRASES = ["act now", "limited time", "guaranteed", "100%", "risk-free", "once in a lifetime", "don't miss", "urgent", "exclusive offer",
                 "click here", "free money", "winner", "congratulations", "no obligation", "amazing opportunity", "buy now"]
@@ -15,8 +18,50 @@ def _digits(s):
     return re.sub(r"[^\d]", "", s)
 
 
+def llm_review(llm, draft: dict, event: dict, facts: list[dict]) -> list[dict]:
+    """Advisory second-opinion check by the LLM. It can only ADD warnings (never clear a block or approve), and a flagged
+    sentence is honoured only if it literally appears in the email, so the model cannot invent findings. Any LLM error
+    yields no extra checks: the deterministic gate above is the safety net."""
+    body = core_body(draft.get("body", ""))
+    try:
+        out = llm.generate_json(email_review_prompt(event, body, facts), system=SYSTEM_RULES, schema=EMAIL_REVIEW_SCHEMA,
+                                task="email_review", context={"event": event, "body": body, "facts": facts}, temperature=0)
+    except LLMError as e:
+        log_event("email_review_skipped", error=str(e))
+        return []
+    norm = lambda s: re.sub(r"\s+", " ", str(s)).strip().lower()  # noqa: E731
+    flagged = []
+    for item in out.get("unsupported_claims") or []:
+        sentence = str(item.get("sentence", "")).strip()
+        if sentence and norm(sentence) in norm(body):
+            flagged.append({"sentence": sentence, "reason": str(item.get("reason", ""))[:200]})
+    checks = []
+    if flagged:
+        checks.append({"name": "ai_unsupported_claims", "status": "warn", "sentences": [f["sentence"] for f in flagged],
+                       "detail": "AI review found sentence(s) not supported by the verified facts: " +
+                                 "; ".join(f"\"{f['sentence'][:80]}\" ({f['reason']})" for f in flagged[:3])})
+    if out.get("weak_personalization") is True:
+        checks.append({"name": "ai_weak_personalization", "status": "warn", "detail": "AI review: this email would read much the same for any company."})
+    if not checks:
+        checks.append({"name": "ai_review", "status": "pass", "detail": "AI review found no unsupported claims (advisory)."})
+    return checks
+
+
+def carry_llm_checks(previous: dict | None, body: str) -> list[dict]:
+    """Keep earlier AI-review warnings after an edit, but only while the flagged sentence is still in the body."""
+    kept, norm = [], lambda s: re.sub(r"\s+", " ", str(s)).strip().lower()  # noqa: E731
+    text = norm(core_body(body))
+    for c in (previous or {}).get("checks", []):
+        if c.get("status") != "warn" or not str(c.get("name", "")).startswith("ai_"):
+            continue
+        if c.get("sentences") and not any(norm(s) in text for s in c["sentences"]):
+            continue
+        kept.append(c)
+    return kept
+
+
 def evaluate(draft: dict, event: dict, company: dict, contact: dict | None, facts: list[dict], fit_score: int | None,
-             min_fit: int = 40, real_send: bool = False) -> dict:
+             min_fit: int = 40, real_send: bool = False, extra_checks: list[dict] | None = None) -> dict:
     checks = []
 
     def add(name, status, detail):
@@ -113,6 +158,7 @@ def evaluate(draft: dict, event: dict, company: dict, contact: dict | None, fact
     else:
         add("relevance", "pass", f"Fit score {fit_score}.")
 
+    checks.extend(extra_checks or [])
     blocks = sum(c["status"] == "block" for c in checks)
     warns = sum(c["status"] == "warn" for c in checks)
     status = "blocked" if blocks else ("needs_review" if warns else "ok")

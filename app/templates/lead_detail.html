@@ -26,6 +26,13 @@
       <h3>Evidence</h3>
       {% if lead.score.evidence %}<ul class="evidence">{% for e in lead.score.evidence %}<li>“{{ e.claim }}” <a href="{{ e.source }}" target="_blank" rel="noopener noreferrer">source</a></li>{% endfor %}</ul>
       {% else %}<p class="empty">No verified evidence found.</p>{% endif %}
+      {% if lead.score.analysis %}{% set a = lead.score.analysis %}
+      <h3>AI commentary <small class="muted">(advisory, not part of the score · priority: {{ a.priority }})</small></h3>
+      {% if a.summary %}<p>{{ a.summary }}</p>{% endif %}
+      {% if a.recommended_angle %}<p><b>Suggested angle:</b> {{ a.recommended_angle }}</p>{% endif %}
+      {% if a.strengths %}<ul class="evidence">{% for st in a.strengths %}<li>{{ st.text }} <span class="muted">({{ st.fact_ids|join(', ') }})</span> {% for u in st.sources %}<a href="{{ u }}" target="_blank" rel="noopener noreferrer">source</a> {% endfor %}</li>{% endfor %}</ul>{% endif %}
+      {% if a.concerns %}<p class="muted"><b>Gaps:</b> {{ a.concerns|join(' · ') }}</p>{% endif %}
+      {% endif %}
     {% else %}<p class="empty">Not scored yet. Research this company to score it.</p>{% endif %}
     {% if lead.reason_relevant %}<p class="muted"><b>Discovery note</b> (written by the model from search snippets, not verified): {{ lead.reason_relevant }}</p>{% endif %}
   </div>

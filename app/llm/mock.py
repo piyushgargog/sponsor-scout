@@ -80,7 +80,6 @@ class MockProvider(LLMProvider):
 
     def _task_email(self, ctx):
         ev, co, ct, facts = ctx["event"], ctx["company"], ctx["contact"], ctx["facts"]
-        sender = ctx.get("sender", {})
         if not facts:
             return {"subject": "", "body": "", "personalization": [], "cta": "", "suggested_ask": ""}
         top = facts[0]
@@ -105,3 +104,15 @@ class MockProvider(LLMProvider):
         cta = "Would you be open to a short conversation in the next couple of weeks?"
         return {"subject": f"Partnership opportunity: {ev['name']} x {co['name']}", "body": "\n".join(parts),
                 "personalization": pers, "cta": cta, "suggested_ask": ask}
+
+    def _task_fit_analysis(self, ctx):
+        facts, score = ctx.get("facts", []), ctx.get("score", {})
+        total = score.get("score", 0)
+        strengths = [{"text": f["text"], "fact_ids": [f["id"]]} for f in facts[:3]]
+        concerns = [f"{v['label']}: no verified information found." for v in (score.get("breakdown") or {}).values() if v["score"] == 0]
+        return {"summary": f"Rule-based fit score is {total}/100 across {len(facts)} verified fact(s).",
+                "priority": "high" if total >= 70 else "medium" if total >= 40 else "low",
+                "recommended_angle": f"Lead with: {facts[0]['text']}" if facts else "", "strengths": strengths, "concerns": concerns}
+
+    def _task_email_review(self, ctx):
+        return {"unsupported_claims": [], "weak_personalization": False, "notes": "mock review: no checks performed"}

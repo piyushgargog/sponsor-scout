@@ -4,7 +4,7 @@ from .discovery import discover_candidates
 from .jobs import PermanentError
 from .llm.base import LLMError
 from .logging_setup import log_event
-from .prompts import SYNTHESIS_SCHEMA, SYSTEM_RULES, synthesis_prompt
+from .prompts import FIT_ANALYSIS_SCHEMA, SYNTHESIS_SCHEMA, SYSTEM_RULES, fit_analysis_prompt, synthesis_prompt
 from .research.contacts import discover_contacts
 from .research.extract import extract_facts, extract_people, verify_quote
 from .research.fetcher import classify_page_kind, crawl_company
@@ -140,8 +140,41 @@ class Pipeline:
         except Exception:
             self.repo.update_lead(lead_id, research_status="FAILED")
             raise
-        self.score_lead(lead_id, research)
+        result = self.score_lead(lead_id, research)
+        if self.s.llm_fit_analysis:
+            self.analyze_fit(lead_id, result, research)
         return {"cached": research.get("cached", False)}
+
+    def analyze_fit(self, lead_id: int, result: dict, research: dict) -> dict | None:
+        """Advisory LLM commentary stored next to the rule-based score (`score_json.analysis`). It never changes the score,
+        and a 'strength' is kept only if it cites fact ids that exist in the verified facts."""
+        facts = research.get("facts") or []
+        if not facts:
+            return None
+        lead = self.repo.get_lead(lead_id)
+        ev, co = self.repo.get_event(lead["event_id"]), self.repo.get_company(lead["company_id"])
+        top = emailgen.select_facts(facts, 20) or facts[:12]
+        try:
+            out = self.llm.generate_json(fit_analysis_prompt(ev, co, result, top), system=SYSTEM_RULES, schema=FIT_ANALYSIS_SCHEMA,
+                                         task="fit_analysis", context={"event": ev, "company": co, "score": result, "facts": top})
+        except LLMError as e:
+            log_event("fit_analysis_skipped", lead_id=lead_id, error=str(e))
+            return None
+        by_id = {f["id"]: f for f in top}
+        strengths = []
+        for item in out.get("strengths") or []:
+            ids = [i for i in item.get("fact_ids", []) if i in by_id]
+            if ids and str(item.get("text", "")).strip():
+                strengths.append({"text": item["text"].strip()[:300], "fact_ids": ids,
+                                  "sources": sorted({by_id[i]["source_url"] for i in ids})})
+        priority = str(out.get("priority", "")).strip().lower()
+        analysis = {"summary": str(out.get("summary", "")).strip()[:400], "priority": priority if priority in ("high", "medium", "low") else "unknown",
+                    "recommended_angle": str(out.get("recommended_angle", "")).strip()[:300], "strengths": strengths,
+                    "concerns": [str(c).strip()[:200] for c in (out.get("concerns") or []) if str(c).strip()][:6],
+                    "dropped_uncited": len(out.get("strengths") or []) - len(strengths), "model": self.llm.model or self.llm.name}
+        result["analysis"] = analysis
+        self.repo.update_lead(lead_id, score_json=jdump(result))
+        return analysis
 
     def score_lead(self, lead_id: int, research: dict | None = None):
         lead = self.repo.get_lead(lead_id)
@@ -186,8 +219,9 @@ class Pipeline:
         except emailgen.EmailGenError as e:
             raise PermanentError(str(e))
         chosen = emailgen.select_facts(research["facts"])
+        extra = quality.llm_review(self.llm, d, emailgen.event_context(ev), chosen) if self.s.llm_email_review else []
         q = quality.evaluate(d, emailgen.event_context(ev), co, contact, chosen, lead["fit_score"], self.s.min_fit_for_email,
-                             real_send=self.s.mail_provider == "gmail")
+                             real_send=self.s.mail_provider == "gmail", extra_checks=extra)
         status = "DRAFT" if q["status"] == "ok" else "NEEDS_REVIEW"
         with self.db.tx():
             if existing:
@@ -214,5 +248,5 @@ class Pipeline:
         ev, co, contact = self.repo.get_event(lead["event_id"]), self.repo.get_company(lead["company_id"]), self.repo.get_contact(d["contact_id"])
         chosen = emailgen.select_facts(research["facts"])
         q = quality.evaluate(d, emailgen.event_context(ev), co, contact, chosen, lead["fit_score"], self.s.min_fit_for_email,
-                             real_send=self.s.mail_provider == "gmail")
+                             real_send=self.s.mail_provider == "gmail", extra_checks=quality.carry_llm_checks(d.get("quality"), d["body"]))
         return q

@@ -24,6 +24,17 @@ EMAIL_SCHEMA = {"type": "object", "required": ["subject", "body", "personalizati
         "sentence": {"type": "string"}, "fact_ids": {"type": "array", "items": {"type": "string"}}, "why": {"type": "string"}}}}}}
 
 
+FIT_ANALYSIS_SCHEMA = {"type": "object", "required": ["summary", "priority"], "properties": {
+    "summary": {"type": "string"}, "priority": {"type": "string"}, "recommended_angle": {"type": "string"},
+    "strengths": {"type": "array", "items": {"type": "object", "required": ["text", "fact_ids"], "properties": {
+        "text": {"type": "string"}, "fact_ids": {"type": "array", "items": {"type": "string"}}}}},
+    "concerns": {"type": "array", "items": {"type": "string"}}}}
+EMAIL_REVIEW_SCHEMA = {"type": "object", "required": ["unsupported_claims"], "properties": {
+    "unsupported_claims": {"type": "array", "items": {"type": "object", "required": ["sentence", "reason"], "properties": {
+        "sentence": {"type": "string"}, "reason": {"type": "string"}}}},
+    "weak_personalization": {"type": "boolean"}, "notes": {"type": "string"}}}
+
+
 def event_summary(ev: dict) -> dict:
     return {k: ev[k] for k in ("name", "college", "city", "country", "event_date", "expected_attendance", "event_type",
                                "audience", "requirements", "categories", "keywords") if k in ev}
@@ -69,3 +80,31 @@ def email_prompt(ev: dict, company: dict, contact: dict, facts: list[dict], send
         f"CONTACT: {json.dumps({'name': contact.get('name'), 'role': contact.get('role')}, ensure_ascii=False)}\n"
         f"ASK OPTIONS: {json.dumps(ask_options)}\n"
         f"SENDER: {sender.get('name')} ({sender.get('role')})\n\nVERIFIED FACTS:\n{fact_lines}\n")
+
+
+def fit_analysis_prompt(ev: dict, company: dict, score: dict, facts: list[dict]) -> str:
+    fact_lines = "\n".join(f"{f['id']}: {f['text']}  (source: {f['source_url']})" for f in facts)
+    dims = {v["label"]: f"{v['score']}/{v['max']}" for v in score["breakdown"].values()}
+    return (
+        "You are advising a student organiser on whether and how to approach a company for sponsorship. "
+        "A transparent rule-based score already exists; you do NOT change or re-score it. Write advisory commentary.\n"
+        "RULES:\n"
+        "- `strengths`: reasons this company fits the event. EACH must cite one or more fact ids from VERIFIED FACTS and may only "
+        "restate what those facts say. A strength without a fact id will be discarded.\n"
+        "- `concerns`: gaps or risks, including dimensions that scored 0 because information is unknown. Do not speculate about the company.\n"
+        "- `priority`: exactly one of high, medium, low (how worthwhile it is to contact this lead first).\n"
+        "- `recommended_angle`: one sentence on what to lead with, based only on VERIFIED FACTS. `summary`: at most 2 sentences.\n"
+        "- Never invent facts, numbers, programs, people or URLs.\n\n"
+        f"EVENT: {json.dumps(event_summary(ev), ensure_ascii=False)}\n"
+        f"COMPANY: {company['name']} ({company.get('industry') or 'unknown'})\n"
+        f"RULE-BASED SCORE: {score['score']}/100 {json.dumps(dims)}\n\nVERIFIED FACTS:\n{fact_lines or '(none)'}\n")
+
+
+def email_review_prompt(ev: dict, body: str, facts: list[dict]) -> str:
+    fact_lines = "\n".join(f"{f['id']}: {f['text']}" for f in facts)
+    return (
+        "Review this cold email as a strict fact-checker. List every sentence that states something about the COMPANY "
+        "(its products, programs, history, locations, numbers or intentions) that is NOT supported by the VERIFIED FACTS. "
+        "Claims about the event come from the EVENT brief and are allowed. Copy each flagged sentence EXACTLY from the email. "
+        "Set weak_personalization=true if the email would read the same for any company. Do not rewrite the email.\n\n"
+        f"EVENT: {json.dumps(event_summary(ev), ensure_ascii=False)}\n\nVERIFIED FACTS:\n{fact_lines}\n\nEMAIL:\n{body}\n")
